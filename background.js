@@ -56,27 +56,23 @@ async function checkForNewPosts() {
         console.error("Error in checkForNewPosts:", error);
     }
 }
-
-
 function extractNewPosts(html) {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-    const articles = doc.querySelectorAll('article[data-testid="tweet"]');
     const posts = [];
+    const articleRegex = /<article[^>]*data-testid="tweet"[^>]*>([\s\S]*?)<\/article>/g;
+    let match;
 
-    console.log(`Found ${articles.length} articles`);
+    while ((match = articleRegex.exec(html)) !== null) {
+        const articleHTML = match[1];
+        const userNameMatch = /<div[^>]*data-testid="User-Name"[^>]*><a[^>]*role="link"[^>]*><div[^>]*>([^<]*)<\/div>/.exec(articleHTML);
+        const timeMatch = /<time[^>]*datetime="([^"]*)"/.exec(articleHTML);
+        const messageMatch = /<div[^>]*data-testid="tweetText"[^>]*>([\s\S]*?)<\/div>/.exec(articleHTML);
+        const linkMatch = /<a[^>]*href="(\/[^"]*\/status\/\d+)"/.exec(articleHTML);
 
-    articles.forEach(article => {
-        const userNameElement = article.querySelector('div[data-testid="User-Name"] a[role="link"] div');
-        const timeElement = article.querySelector('time');
-        const messageElement = article.querySelector('div[data-testid="tweetText"]');
-        const linkElement = article.querySelector('a[href*="/status/"]');
-
-        if (userNameElement && timeElement && messageElement && linkElement) {
-            const userName = userNameElement.textContent.trim();
-            const time = new Date(timeElement.getAttribute('datetime'));
-            const message = messageElement.textContent.trim();
-            const linkToPost = 'https://x.com' + linkElement.getAttribute('href');
+        if (userNameMatch && timeMatch && messageMatch && linkMatch) {
+            const userName = userNameMatch[1].trim();
+            const time = new Date(timeMatch[1]);
+            const message = messageMatch[1].replace(/<[^>]+>/g, '').trim(); // Strip HTML tags
+            const linkToPost = 'https://x.com' + linkMatch[1];
 
             posts.push({
                 from: userName,
@@ -84,13 +80,46 @@ function extractNewPosts(html) {
                 message: message,
                 link_to_post: linkToPost
             });
-
-            console.log("Extracted post:", { userName, time, message, linkToPost });
         }
-    });
+    }
 
     return posts;
 }
+
+
+// function extractNewPosts(html) {
+//     const parser = new DOMParser();
+//     const doc = parser.parseFromString(html, 'text/html');
+//     const articles = doc.querySelectorAll('article[data-testid="tweet"]');
+//     const posts = [];
+
+//     console.log(`Found ${articles.length} articles`);
+
+//     articles.forEach(article => {
+//         const userNameElement = article.querySelector('div[data-testid="User-Name"] a[role="link"] div');
+//         const timeElement = article.querySelector('time');
+//         const messageElement = article.querySelector('div[data-testid="tweetText"]');
+//         const linkElement = article.querySelector('a[href*="/status/"]');
+
+//         if (userNameElement && timeElement && messageElement && linkElement) {
+//             const userName = userNameElement.textContent.trim();
+//             const time = new Date(timeElement.getAttribute('datetime'));
+//             const message = messageElement.textContent.trim();
+//             const linkToPost = 'https://x.com' + linkElement.getAttribute('href');
+
+//             posts.push({
+//                 from: userName,
+//                 time: time,
+//                 message: message,
+//                 link_to_post: linkToPost
+//             });
+
+//             console.log("Extracted post:", { userName, time, message, linkToPost });
+//         }
+//     });
+
+//     return posts;
+// }
 
 
 async function getStoredPosts() {
