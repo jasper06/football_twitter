@@ -9,20 +9,32 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "postsExtracted") {
         const newPosts = request.data;
-        processNewPosts(newPosts); // Function to process and store the new posts
-        sendResponse({ status: "Posts processed" });
+        processNewPosts(newPosts)
+            .then(() => sendResponse({ status: "Posts processed" }))
+            .catch((error) => {
+                console.error("Error processing posts:", error);
+                sendResponse({ status: "Error processing posts" });
+            });
+        return true; // Indicates we want to send a response asynchronously
     }
+
     if (request.action === "checkNow") {
-        // Inject the content script and run it
-        chrome.scripting.executeScript(
-            {
-                target: { tabId: sender.tab.id },
-                files: ['content.js']
-            },
-            () => {
-                console.log("Content script injected and executed.");
-            }
-        );
+        if (sender.tab && sender.tab.id) {
+            // Inject the content script and run it
+            chrome.scripting.executeScript(
+                {
+                    target: { tabId: sender.tab.id },
+                    files: ['content.js']
+                },
+                () => {
+                    console.log("Content script injected and executed.");
+                    sendResponse({ status: "Script executed" });
+                }
+            );
+        } else {
+            console.error("No tab ID found in the sender object.");
+            sendResponse({ status: "No tab ID found" });
+        }
         return true; // Indicates we want to send a response asynchronously
     }
 });
@@ -38,48 +50,9 @@ async function processNewPosts(newPosts) {
         }
     }
 
-    storePosts(newPosts);
+    storePosts([...storedPosts, ...freshPosts]); // Store both old and new posts
     storeLastRefreshTime(new Date().toISOString());
 }
-
-
-async function checkForNewPosts() {
-    const url = "https://x.com/search?q=excelsior%20-lang%3Aes%20-lang%3Aen%20-from%3ALiberty1Jami&src=typed_query&f=live";
-    try {
-        const response = await fetch(url);
-        if (!response.ok) {
-            console.error("Fetch failed:", response.status, response.statusText);
-            return;
-        }
-
-        const html = await response.text();
-        console.log("Fetched HTML:", html.substring(0, 100)); // Log the first 100 characters
-
-        const newPosts = extractNewPosts(html);
-
-        if (newPosts.length === 0) {
-            console.log("No new posts found");
-        } else {
-            console.log("New posts found:", newPosts);
-        }
-
-        const storedPosts = await getStoredPosts();
-        const freshPosts = newPosts.filter(post => !storedPosts.some(storedPost => storedPost.link_to_post === post.link_to_post));
-
-        for (const post of freshPosts) {
-            const isRelevant = await checkRelevanceWithOllama(post.message);
-            if (isRelevant) {
-                showNotification(post);
-            }
-        }
-
-        storePosts(newPosts);
-        storeLastRefreshTime(new Date().toISOString());
-    } catch (error) {
-        console.error("Error in checkForNewPosts:", error);
-    }
-}
-
 
 async function getStoredPosts() {
     return new Promise((resolve) => {
@@ -98,7 +71,6 @@ function storeLastRefreshTime(time) {
     console.log("Storing last refresh time:", time);
     chrome.storage.local.set({ lastRefresh: time });
 }
-
 
 async function checkRelevanceWithOllama(message) {
     const response = await fetch("http://localhost:11434/api/generate", {

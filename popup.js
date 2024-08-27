@@ -19,14 +19,18 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('checkNowButton').addEventListener('click', () => {
         document.getElementById('statusMessage').textContent = "Checking for new posts...";
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            chrome.runtime.sendMessage({ action: "checkNow", tabId: tabs[0].id }, (response) => {
-                if (response.status === "Check completed") {
-                    document.getElementById('statusMessage').textContent = "Check completed!";
-                    setTimeout(() => location.reload(), 1000);
-                } else {
-                    document.getElementById('statusMessage').textContent = "Check failed. Please try again.";
-                }
-            });
+            if (tabs[0]) {
+                chrome.runtime.sendMessage({ action: "checkNow", tabId: tabs[0].id }, (response) => {
+                    if (response?.status === "Script executed") {
+                        document.getElementById('statusMessage').textContent = "Check completed!";
+                        setTimeout(() => location.reload(), 1000);
+                    } else {
+                        document.getElementById('statusMessage').textContent = "Check failed. Please try again.";
+                    }
+                });
+            } else {
+                document.getElementById('statusMessage').textContent = "No active tab found.";
+            }
         });
     });
 });
