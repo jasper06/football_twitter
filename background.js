@@ -7,18 +7,41 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === "postsExtracted") {
+        const newPosts = request.data;
+        processNewPosts(newPosts); // Function to process and store the new posts
+        sendResponse({ status: "Posts processed" });
+    }
     if (request.action === "checkNow") {
-        checkForNewPosts()
-            .then(() => {
-                sendResponse({ status: "Check completed" });
-            })
-            .catch(error => {
-                console.error("Error during manual check:", error);
-                sendResponse({ status: "Check failed" });
-            });
+        // Inject the content script and run it
+        chrome.scripting.executeScript(
+            {
+                target: { tabId: sender.tab.id },
+                files: ['content.js']
+            },
+            () => {
+                console.log("Content script injected and executed.");
+            }
+        );
         return true; // Indicates we want to send a response asynchronously
     }
 });
+
+async function processNewPosts(newPosts) {
+    const storedPosts = await getStoredPosts();
+    const freshPosts = newPosts.filter(post => !storedPosts.some(storedPost => storedPost.link_to_post === post.link_to_post));
+
+    for (const post of freshPosts) {
+        const isRelevant = await checkRelevanceWithOllama(post.message);
+        if (isRelevant) {
+            showNotification(post);
+        }
+    }
+
+    storePosts(newPosts);
+    storeLastRefreshTime(new Date().toISOString());
+}
+
 
 async function checkForNewPosts() {
     const url = "https://x.com/search?q=excelsior%20-lang%3Aes%20-lang%3Aen%20-from%3ALiberty1Jami&src=typed_query&f=live";
@@ -56,70 +79,6 @@ async function checkForNewPosts() {
         console.error("Error in checkForNewPosts:", error);
     }
 }
-function extractNewPosts(html) {
-    const posts = [];
-    const articleRegex = /<article[^>]*data-testid="tweet"[^>]*>([\s\S]*?)<\/article>/g;
-    let match;
-
-    while ((match = articleRegex.exec(html)) !== null) {
-        const articleHTML = match[1];
-        const userNameMatch = /<div[^>]*data-testid="User-Name"[^>]*><a[^>]*role="link"[^>]*><div[^>]*>([^<]*)<\/div>/.exec(articleHTML);
-        const timeMatch = /<time[^>]*datetime="([^"]*)"/.exec(articleHTML);
-        const messageMatch = /<div[^>]*data-testid="tweetText"[^>]*>([\s\S]*?)<\/div>/.exec(articleHTML);
-        const linkMatch = /<a[^>]*href="(\/[^"]*\/status\/\d+)"/.exec(articleHTML);
-
-        if (userNameMatch && timeMatch && messageMatch && linkMatch) {
-            const userName = userNameMatch[1].trim();
-            const time = new Date(timeMatch[1]);
-            const message = messageMatch[1].replace(/<[^>]+>/g, '').trim(); // Strip HTML tags
-            const linkToPost = 'https://x.com' + linkMatch[1];
-
-            posts.push({
-                from: userName,
-                time: time,
-                message: message,
-                link_to_post: linkToPost
-            });
-        }
-    }
-
-    return posts;
-}
-
-
-// function extractNewPosts(html) {
-//     const parser = new DOMParser();
-//     const doc = parser.parseFromString(html, 'text/html');
-//     const articles = doc.querySelectorAll('article[data-testid="tweet"]');
-//     const posts = [];
-
-//     console.log(`Found ${articles.length} articles`);
-
-//     articles.forEach(article => {
-//         const userNameElement = article.querySelector('div[data-testid="User-Name"] a[role="link"] div');
-//         const timeElement = article.querySelector('time');
-//         const messageElement = article.querySelector('div[data-testid="tweetText"]');
-//         const linkElement = article.querySelector('a[href*="/status/"]');
-
-//         if (userNameElement && timeElement && messageElement && linkElement) {
-//             const userName = userNameElement.textContent.trim();
-//             const time = new Date(timeElement.getAttribute('datetime'));
-//             const message = messageElement.textContent.trim();
-//             const linkToPost = 'https://x.com' + linkElement.getAttribute('href');
-
-//             posts.push({
-//                 from: userName,
-//                 time: time,
-//                 message: message,
-//                 link_to_post: linkToPost
-//             });
-
-//             console.log("Extracted post:", { userName, time, message, linkToPost });
-//         }
-//     });
-
-//     return posts;
-// }
 
 
 async function getStoredPosts() {
