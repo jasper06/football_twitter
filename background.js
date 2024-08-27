@@ -19,22 +19,25 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     if (request.action === "checkNow") {
-        if (sender.tab && sender.tab.id) {
-            // Inject the content script and run it
-            chrome.scripting.executeScript(
-                {
-                    target: { tabId: sender.tab.id },
-                    files: ['content.js']
-                },
-                () => {
-                    console.log("Content script injected and executed.");
-                    sendResponse({ status: "Script executed" });
-                }
-            );
-        } else {
-            console.error("No tab ID found in the sender object.");
-            sendResponse({ status: "No tab ID found" });
-        }
+        // Use chrome.tabs.query to find the active tab
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (tabs[0] && tabs[0].id) {
+                // Inject the content script and run it
+                chrome.scripting.executeScript(
+                    {
+                        target: { tabId: tabs[0].id },
+                        files: ['content.js']
+                    },
+                    () => {
+                        console.log("Content script injected and executed.");
+                        sendResponse({ status: "Script executed" });
+                    }
+                );
+            } else {
+                console.error("No active tab found.");
+                sendResponse({ status: "No active tab found" });
+            }
+        });
         return true; // Indicates we want to send a response asynchronously
     }
 });
@@ -73,17 +76,27 @@ function storeLastRefreshTime(time) {
 }
 
 async function checkRelevanceWithOllama(message) {
-    const response = await fetch("http://localhost:11434/api/generate", {
+    const response = await fetch("http://127.0.0.1:11434/api/generate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+            "Content-Type": "application/json"
+        },
         body: JSON.stringify({
-            model: "llama3.1",
-            prompt: `Is this post about Excelsior football club or one of their players? Post: "${message}"`
+            model: "llama3",
+            prompt: `Is this post about Excelsior football club or one of their players? Post: "${message}"`,
+            format: "json",
+            stream: false
         })
     });
+
+    if (!response.ok) {
+        throw new Error(`Server error: ${response.status}`);
+    }
+
     const result = await response.json();
     return result.response.toLowerCase().includes("yes");
 }
+
 
 function showNotification(post) {
     chrome.notifications.create({
