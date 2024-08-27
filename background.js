@@ -8,30 +8,49 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 async function checkForNewPosts() {
     const url = "https://x.com/search?q=excelsior%20-lang%3Aes%20-lang%3Aen%20-from%3ALiberty1Jami&src=typed_query&f=live";
-    const response = await fetch(url);
-    const html = await response.text();
-
-    const newPosts = extractNewPosts(html);
-
-    const storedPosts = await getStoredPosts();
-    const freshPosts = newPosts.filter(post => !storedPosts.some(storedPost => storedPost.link_to_post === post.link_to_post));
-
-    for (const post of freshPosts) {
-        const isRelevant = await checkRelevanceWithOllama(post.message);
-        if (isRelevant) {
-            showNotification(post);
+    try {
+        const response = await fetch(url);
+        if (!response.ok) {
+            console.error("Fetch failed:", response.status, response.statusText);
+            return;
         }
-    }
 
-    storePosts(newPosts);
-    storeLastRefreshTime(new Date().toISOString());
+        const html = await response.text();
+        console.log("Fetched HTML:", html.substring(0, 100)); // Log the first 100 characters
+
+        const newPosts = extractNewPosts(html);
+
+        if (newPosts.length === 0) {
+            console.log("No new posts found");
+        } else {
+            console.log("New posts found:", newPosts);
+        }
+
+        const storedPosts = await getStoredPosts();
+        const freshPosts = newPosts.filter(post => !storedPosts.some(storedPost => storedPost.link_to_post === post.link_to_post));
+
+        for (const post of freshPosts) {
+            const isRelevant = await checkRelevanceWithOllama(post.message);
+            if (isRelevant) {
+                showNotification(post);
+            }
+        }
+
+        storePosts(newPosts);
+        storeLastRefreshTime(new Date().toISOString());
+    } catch (error) {
+        console.error("Error in checkForNewPosts:", error);
+    }
 }
+
 
 function extractNewPosts(html) {
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');
     const articles = doc.querySelectorAll('article[data-testid="tweet"]');
     const posts = [];
+
+    console.log(`Found ${articles.length} articles`);
 
     articles.forEach(article => {
         const userNameElement = article.querySelector('div[data-testid="User-Name"] a[role="link"] div');
@@ -51,11 +70,14 @@ function extractNewPosts(html) {
                 message: message,
                 link_to_post: linkToPost
             });
+
+            console.log("Extracted post:", { userName, time, message, linkToPost });
         }
     });
 
     return posts;
 }
+
 
 async function getStoredPosts() {
     return new Promise((resolve) => {
@@ -66,12 +88,15 @@ async function getStoredPosts() {
 }
 
 function storePosts(posts) {
+    console.log("Storing posts:", posts);
     chrome.storage.local.set({ posts });
 }
 
 function storeLastRefreshTime(time) {
+    console.log("Storing last refresh time:", time);
     chrome.storage.local.set({ lastRefresh: time });
 }
+
 
 async function checkRelevanceWithOllama(message) {
     const response = await fetch("http://localhost:11434/api/generate", {

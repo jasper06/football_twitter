@@ -1,5 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     chrome.storage.local.get(['posts', 'lastRefresh'], (result) => {
+        console.log("Retrieved from storage:", result);
+
         const latestPost = result.posts?.[0];
         const lastRefresh = result.lastRefresh;
 
