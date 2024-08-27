@@ -87,7 +87,7 @@ async function checkRelevanceWithOllama(message) {
             "Content-Type": "application/json"
         },
         body: JSON.stringify({
-            model: "llama3",
+            model: "llama3.1",
             prompt: `Is this post about Excelsior football club or one of their players? Post: "${message}"`,
             format: "json",
             stream: false
@@ -99,8 +99,11 @@ async function checkRelevanceWithOllama(message) {
     }
 
     const result = await response.json();
+    console.log("Ollama API Response:", result); // Log the entire response
+
     return result.response.toLowerCase().includes("yes");
 }
+
 
 function showNotification(post) {
     chrome.notifications.create({
