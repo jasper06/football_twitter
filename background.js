@@ -88,7 +88,7 @@ async function checkRelevanceWithOllama(message) {
         },
         body: JSON.stringify({
             model: "llama3.1",
-            prompt: `Is this post about Excelsior football club or one of their players? Post: "${message}"`,
+            prompt: `I'm looking for posts about Excelsior Rotterdam, a football club from the Netherlands. : "${message}", please answer with yes or no if you think with this knowledge that there is a chance that this tweet is saying something about Excelsior. Just answer 'yes' or 'no'.`,
             format: "json",
             stream: false
         })
