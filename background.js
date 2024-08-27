@@ -35,9 +35,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true; // Indicates that the response is asynchronous
     }
 });
+
 async function checkForNewPosts() {
     try {
-        const targetUrl = "https://x.com/search?q=excelsior+-lang%3Aes+-from%3ALiberty1Jami&src=typed_query&f=live"; // change this to a different search url to change the feed. 
+        const targetUrl = "https://x.com/search?q=excelsior+-lang%3Aes+-from%3ALiberty1Jami&src=typed_query&f=live";
         let [tab] = await chrome.tabs.query({ url: targetUrl });
 
         if (!tab) {
@@ -83,78 +84,6 @@ function waitForTabToLoad(tabId) {
     });
 }
 
-
-
-/**
- * Helper function to wait for a tab to complete loading.
- * @param {number} tabId - The ID of the tab to wait for.
- */
-function waitForTabToLoad(tabId) {
-    return new Promise((resolve, reject) => {
-        const timeout = 10000; // 10 seconds timeout
-        const interval = 500; // Check every 500ms
-        let elapsedTime = 0;
-
-        const checkTabStatus = async () => {
-            try {
-                const tab = await chrome.tabs.get(tabId);
-                if (tab.status === 'complete') {
-                    resolve();
-                } else if (elapsedTime >= timeout) {
-                    reject(new Error("Tab loading timed out."));
-                } else {
-                    elapsedTime += interval;
-                    setTimeout(checkTabStatus, interval);
-                }
-            } catch (error) {
-                reject(error);
-            }
-        };
-
-        checkTabStatus();
-    });
-}
-
-/**
- * Processes new posts extracted from the content script.
- * Filters out already processed posts, checks relevance, and shows notifications.
- * @param {Array} newPosts - Array of posts extracted from the content script.
- */
-// async function processNewPosts(newPosts) {
-//     try {
-//         const storedPosts = await getStoredPosts();
-
-//         // Filter out duplicates based on the unique link_to_post
-//         const freshPosts = newPosts.filter(
-//             post => !storedPosts.some(storedPost => storedPost.link_to_post === post.link_to_post)
-//         );
-
-//         console.log(`Found ${freshPosts.length} new posts.`);
-
-//         for (const post of freshPosts) {
-//             const isRelevant = await checkRelevanceWithOllama(post.message);
-//             console.log(`Post: "${post.message}" | Relevant: ${isRelevant}`);
-
-//             if (isRelevant) {
-//                 await showNotification(post);
-//             }
-//         }
-
-//         // Combine and sort all posts, keep only the latest 100 to prevent storage bloat
-//         const allPosts = [...freshPosts, ...storedPosts];
-//         allPosts.sort((a, b) => new Date(b.time) - new Date(a.time));
-//         const postsToStore = allPosts.slice(0, 100);
-
-//         await storePosts(postsToStore);
-//         await storeLastRefreshTime(new Date().toISOString());
-
-//         console.log("Posts processing completed successfully.");
-
-//     } catch (error) {
-//         console.error("Error in processNewPosts:", error);
-//         throw error;
-//     }
-// }
 async function processNewPosts(newPosts) {
     try {
         const storedPosts = await getStoredPosts();
@@ -173,6 +102,7 @@ async function processNewPosts(newPosts) {
                 console.log(`Post: "${post.message}" | Relevant: ${isRelevant}`);
 
                 if (isRelevant) {
+                    console.log(`Notification should be sent: tweet: "${post.message}", Ollama response JSON: ${JSON.stringify(isRelevant)}`);
                     await showNotification(post);
                 }
             } else {
@@ -258,13 +188,13 @@ function storeLastRefreshTime(time) {
 /**
  * Checks the relevance of a post's message using the Ollama API.
  * @param {string} message - The message content of the post.
- * @returns {Promise<boolean>} - Promise resolving to true if relevant, false otherwise.
+ * @returns {Promise<object>} - Promise resolving to the Ollama API response.
  */
 async function checkRelevanceWithOllama(message) {
     try {
         const apiUrl = "http://127.0.0.1:11434/api/generate";
-        const prompt = `I'm looking for posts about Excelsior (usually referred to as Excelsior, Excelsior Rotterdam or Excelsiorrdam), a football club that is linked to new players or leaving players. I'm mainly interested in people saying stuff about Excelsior, potential new players or leaving players. As a first step I want to make sure that the link with the tweet is about a football club, and second if there might be a link with Excelsior. Please review this tweet {message} and respond yes or no in this json format: {{"relevant":"", "reason":""}}`;
-
+        const prompt = `I'm looking for posts about Excelsior (usually referred to as Excelsior, Excelsior Rotterdam or Excelsiorrdam), a football club that is linked to new players or leaving players. I'm mainly interested in people saying stuff about Excelsior, potential new players or leaving players. As a first step I want to make sure that the link with the tweet is about a football club, and second if there might be a link with Excelsior. Please review this tweet "${message}" and respond yes or no in this json format: {{"relevant":"", "reason":""}}`;
+        console.log("prompt:", prompt);
         const response = await fetch(apiUrl, {
             method: "POST",
             headers: {
@@ -285,12 +215,12 @@ async function checkRelevanceWithOllama(message) {
         const result = await response.json();
         console.log("Ollama API Response:", result);
 
-        const answer = result.response.trim().toLowerCase();
-        return answer === "yes";
+        // Return the full response object to log it later
+        return result;
 
     } catch (error) {
         console.error("Error in checkRelevanceWithOllama:", error);
-        return false; // Default to not relevant on error to prevent false positives
+        return { relevant: "no", reason: "Error occurred during relevance check" }; // Default response to prevent errors
     }
 }
 
@@ -316,18 +246,21 @@ function showNotification(post) {
                 // Add a click listener to open the post link when the notification is clicked
                 chrome.notifications.onClicked.addListener((clickedNotificationId) => {
                     if (clickedNotificationId === notificationId) {
+                        console.log(`Notification with ID: ${notificationId} was clicked. Opening link: ${post.link_to_post}`);
                         chrome.tabs.create({ url: post.link_to_post });
                         chrome.notifications.clear(notificationId);
                     }
                 });
 
-                // Auto-clear the notification after a certain time (e.g., 10 seconds)
+                // Auto-clear the notification after 30 seconds for testing purposes
                 setTimeout(() => {
+                    console.log(`Auto-clearing notification with ID: ${notificationId}`);
                     chrome.notifications.clear(notificationId);
-                }, 10000);
+                }, 30000); // 30 seconds for testing, adjust as needed
 
                 resolve();
             }
         });
     });
 }
+
