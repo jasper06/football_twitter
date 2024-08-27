@@ -99,11 +99,13 @@ async function processNewPosts(newPosts) {
             // Preprocess: Ensure the message contains "Excelsior"
             if (containsExcelsior(post.message)) {
                 const isRelevant = await checkRelevanceWithOllama(post.message);
-                console.log(`Post: "${post.message}" | Relevant: ${isRelevant}`);
+                console.log(`Post: "${post.message}" | Relevant: ${isRelevant.relevant}`);
 
-                if (isRelevant) {
+                if (isRelevant.relevant === "yes") {
                     console.log(`Notification should be sent: tweet: "${post.message}", Ollama response JSON: ${JSON.stringify(isRelevant)}`);
                     await showNotification(post);
+                } else {
+                    console.log(`No notification: tweet "${post.message}", Reason: ${isRelevant.reason}`);
                 }
             } else {
                 console.log(`Filtered out post (no 'Excelsior' in message): "${post.message}"`);
@@ -126,19 +128,10 @@ async function processNewPosts(newPosts) {
     }
 }
 
-/**
- * Function to check if a message contains the word "Excelsior".
- * @param {string} message - The message content of the post.
- * @returns {boolean} - Returns true if the message contains "Excelsior", false otherwise.
- */
 function containsExcelsior(message) {
     return message.toLowerCase().includes("excelsior");
 }
 
-/**
- * Retrieves stored posts from chrome.storage.local.
- * @returns {Promise<Array>} - Promise resolving to an array of stored posts.
- */
 function getStoredPosts() {
     return new Promise((resolve, reject) => {
         chrome.storage.local.get(["posts"], (result) => {
@@ -151,10 +144,6 @@ function getStoredPosts() {
     });
 }
 
-/**
- * Stores posts array into chrome.storage.local.
- * @param {Array} posts - Array of posts to store.
- */
 function storePosts(posts) {
     return new Promise((resolve, reject) => {
         chrome.storage.local.set({ posts }, () => {
@@ -168,10 +157,6 @@ function storePosts(posts) {
     });
 }
 
-/**
- * Stores the last refresh time into chrome.storage.local.
- * @param {string} time - ISO string representing the last refresh time.
- */
 function storeLastRefreshTime(time) {
     return new Promise((resolve, reject) => {
         chrome.storage.local.set({ lastRefresh: time }, () => {
@@ -185,16 +170,11 @@ function storeLastRefreshTime(time) {
     });
 }
 
-/**
- * Checks the relevance of a post's message using the Ollama API.
- * @param {string} message - The message content of the post.
- * @returns {Promise<object>} - Promise resolving to the Ollama API response.
- */
 async function checkRelevanceWithOllama(message) {
     try {
         const apiUrl = "http://127.0.0.1:11434/api/generate";
         const prompt = `I'm looking for posts about Excelsior (usually referred to as Excelsior, Excelsior Rotterdam or Excelsiorrdam), a football club that is linked to new players or leaving players. I'm mainly interested in people saying stuff about Excelsior, potential new players or leaving players. As a first step I want to make sure that the link with the tweet is about a football club, and second if there might be a link with Excelsior. Please review this tweet "${message}" and respond yes or no in this json format: {{"relevant":"", "reason":""}}`;
-        console.log("prompt:", prompt);
+
         const response = await fetch(apiUrl, {
             method: "POST",
             headers: {
@@ -215,24 +195,53 @@ async function checkRelevanceWithOllama(message) {
         const result = await response.json();
         console.log("Ollama API Response:", result);
 
-        // Return the full response object to log it later
-        return result;
+        // Handle different possible formats of the 'response' field
+        let parsedResponse;
+        try {
+            // Attempt to parse the 'response' as a JSON string
+            parsedResponse = JSON.parse(result.response);
+        } catch (e) {
+            console.error("Failed to parse response as JSON string. Attempting to handle manually.", e);
+            // Handle the case where the response might not be a valid JSON string
+            parsedResponse = result.response;
+        }
+
+        // Normalize the 'relevant' and 'reason' fields
+        let relevant = "no";
+        let reason = "No reason provided.";
+
+        if (typeof parsedResponse === 'string') {
+            // If parsedResponse is a string, try to parse it as JSON
+            try {
+                parsedResponse = JSON.parse(parsedResponse);
+                relevant = parsedResponse.relevant?.toString().toLowerCase() || "no";
+                reason = parsedResponse.reason || reason;
+            } catch (e) {
+                console.error("Failed to parse inner JSON string.", e);
+            }
+        } else if (typeof parsedResponse === 'object') {
+            // If parsedResponse is an object, extract relevant fields
+            relevant = parsedResponse.relevant?.toString().toLowerCase() || "no";
+            reason = parsedResponse.reason || reason;
+        }
+
+        return {
+            relevant: relevant === "yes" || relevant === "true" ? "yes" : "no",
+            reason: reason
+        };
 
     } catch (error) {
         console.error("Error in checkRelevanceWithOllama:", error);
-        return { relevant: "no", reason: "Error occurred during relevance check" }; // Default response to prevent errors
+        return { relevant: "no", reason: "Error occurred while checking relevance." };
     }
 }
 
-/**
- * Shows a desktop notification for a relevant post.
- * @param {Object} post - The post object containing details to display.
- */
+
 function showNotification(post) {
     return new Promise((resolve, reject) => {
         chrome.notifications.create({
             type: "basic",
-            iconUrl: "icon.png", // Ensure 'icon.png' exists in your extension directory
+            iconUrl: "icon.png",
             title: "New Excelsior Post",
             message: `${post.from}: ${post.message}`,
             priority: 2
@@ -246,21 +255,19 @@ function showNotification(post) {
                 // Add a click listener to open the post link when the notification is clicked
                 chrome.notifications.onClicked.addListener((clickedNotificationId) => {
                     if (clickedNotificationId === notificationId) {
-                        console.log(`Notification with ID: ${notificationId} was clicked. Opening link: ${post.link_to_post}`);
                         chrome.tabs.create({ url: post.link_to_post });
                         chrome.notifications.clear(notificationId);
                     }
                 });
 
-                // Auto-clear the notification after 30 seconds for testing purposes
+                // Auto-clear the notification after a certain time (e.g., 10 seconds)
                 setTimeout(() => {
-                    console.log(`Auto-clearing notification with ID: ${notificationId}`);
                     chrome.notifications.clear(notificationId);
-                }, 30000); // 30 seconds for testing, adjust as needed
+                    console.log(`Auto-clearing notification with ID: ${notificationId}`);
+                }, 10000);
 
                 resolve();
             }
         });
     });
 }
-
