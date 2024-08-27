@@ -1,0 +1,18 @@
+{
+    "manifest_version": 3,
+    "name": "Excelsior Post Tracker",
+    "version": "1.0",
+    "description": "Tracks new posts about Excelsior football club",
+    "permissions": [
+        "alarms",
+        "storage",
+        "notifications",
+        "https://x.com/*"
+    ],
+    "background": {
+        "service_worker": "background.js"
+    },
+    "action": {
+        "default_popup": "popup.html"
+    }
+}
