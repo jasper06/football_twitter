@@ -11,15 +11,20 @@ async function checkForNewPosts() {
     const response = await fetch(url);
     const html = await response.text();
 
-    // Extract new posts from the HTML (this is a simplified example)
     const newPosts = extractNewPosts(html);
 
-    for (const post of newPosts) {
-        const isRelevant = await checkRelevanceWithOllama(post);
+    const storedPosts = await getStoredPosts();
+    const freshPosts = newPosts.filter(post => !storedPosts.some(storedPost => storedPost.link_to_post === post.link_to_post));
+
+    for (const post of freshPosts) {
+        const isRelevant = await checkRelevanceWithOllama(post.message);
         if (isRelevant) {
             showNotification(post);
         }
     }
+
+    storePosts(newPosts);
+    storeLastRefreshTime(new Date().toISOString());
 }
 
 function extractNewPosts(html) {
@@ -52,15 +57,29 @@ function extractNewPosts(html) {
     return posts;
 }
 
-async function checkRelevanceWithOllama(post) {
-    // Implement Ollama API call here
-    // This is a placeholder and needs to be implemented with actual Ollama integration
+async function getStoredPosts() {
+    return new Promise((resolve) => {
+        chrome.storage.local.get(["posts"], (result) => {
+            resolve(result.posts || []);
+        });
+    });
+}
+
+function storePosts(posts) {
+    chrome.storage.local.set({ posts });
+}
+
+function storeLastRefreshTime(time) {
+    chrome.storage.local.set({ lastRefresh: time });
+}
+
+async function checkRelevanceWithOllama(message) {
     const response = await fetch("http://localhost:11434/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-            model: "llama2",
-            prompt: `Is this post about Excelsior football club or one of their players? Post: "${post}"`
+            model: "llama3.1",
+            prompt: `Is this post about Excelsior football club or one of their players? Post: "${message}"`
         })
     });
     const result = await response.json();
@@ -72,6 +91,7 @@ function showNotification(post) {
         type: "basic",
         iconUrl: "icon.png",
         title: "New Excelsior Post",
-        message: post
+        message: `${post.from}: ${post.message}`,
+        contextMessage: post.link_to_post
     });
 }
