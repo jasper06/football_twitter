@@ -35,46 +35,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true; // Indicates that the response is asynchronous
     }
 });
-
-/**
- * Function to check for new posts.
- * This function searches for an open tab with the specified URL and injects the content script.
- * If the tab is not found, it opens a new tab and then injects the content script.
- */
-// async function checkForNewPosts() {
-//     try {
-//         const targetUrl = "https://x.com/search?q=excelsior+-lang%3Aes+-lang%3Aen+-from%3ALiberty1Jami&src=typed_query&f=live";
-//         let [tab] = await chrome.tabs.query({ url: "*://x.com/*" });
-
-//         if (!tab) {
-//             console.log(`No tab found with URL ${targetUrl}. Opening new tab.`);
-//             tab = await chrome.tabs.create({ url: targetUrl, active: false });
-//             // Wait for the tab to fully load before injecting the script
-//             await waitForTabToLoad(tab.id);
-//         } else {
-//             console.log(`Found existing tab with URL ${tab.url}. Using tab ID: ${tab.id}`);
-//             // Bring the tab to the foreground if needed
-//             // await chrome.tabs.update(tab.id, { active: true });
-//             // Ensure the tab is updated to the latest content
-//             await chrome.tabs.reload(tab.id);
-//             await waitForTabToLoad(tab.id);
-//         }
-
-//         // Inject the content script into the target tab
-//         await chrome.scripting.executeScript({
-//             target: { tabId: tab.id },
-//             files: ['content.js']
-//         });
-
-//         console.log("Content script injected successfully.");
-
-//     } catch (error) {
-//         console.error("Error in checkForNewPosts:", error);
-//     }
-// }
 async function checkForNewPosts() {
     try {
-        const targetUrl = "https://x.com/search?q=excelsior+-lang%3Aes+-lang%3Aen+-from%3ALiberty1Jami&src=typed_query&f=live";
+        const targetUrl = "https://x.com/search?q=excelsior+-lang%3Aes+-from%3ALiberty1Jami&src=typed_query&f=live"; // change this to a different search url to change the feed. 
         let [tab] = await chrome.tabs.query({ url: targetUrl });
 
         if (!tab) {
@@ -251,7 +214,7 @@ function storeLastRefreshTime(time) {
 async function checkRelevanceWithOllama(message) {
     try {
         const apiUrl = "http://127.0.0.1:11434/api/generate";
-        const prompt = `I'm looking for posts about Excelsior Rotterdam, a football club from the Netherlands. Given the following post, answer with 'yes' if it's related to Excelsior Rotterdam, otherwise answer 'no'.\n\nPost: "${message}"\n\nAnswer:`;
+        const prompt = `I'm looking for posts about Excelsior (usually referred to as Excelsior, Excelsior Rotterdam or Excelsiorrdam), a football club that is linked to new players or leaving players. I'm mainly interested in people saying stuff about Excelsior, potential new players or leaving players. As a first step I want to make sure that the link with the tweet is about a football club, and second if there might be a link with Excelsior. Please review this tweet {message} and respond yes or no in this json format: {{"relevant":"", "reason":""}}`;
 
         const response = await fetch(apiUrl, {
             method: "POST",
