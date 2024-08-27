@@ -41,37 +41,86 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
  * This function searches for an open tab with the specified URL and injects the content script.
  * If the tab is not found, it opens a new tab and then injects the content script.
  */
+// async function checkForNewPosts() {
+//     try {
+//         const targetUrl = "https://x.com/search?q=excelsior+-lang%3Aes+-lang%3Aen+-from%3ALiberty1Jami&src=typed_query&f=live";
+//         let [tab] = await chrome.tabs.query({ url: "*://x.com/*" });
+
+//         if (!tab) {
+//             console.log(`No tab found with URL ${targetUrl}. Opening new tab.`);
+//             tab = await chrome.tabs.create({ url: targetUrl, active: false });
+//             // Wait for the tab to fully load before injecting the script
+//             await waitForTabToLoad(tab.id);
+//         } else {
+//             console.log(`Found existing tab with URL ${tab.url}. Using tab ID: ${tab.id}`);
+//             // Bring the tab to the foreground if needed
+//             // await chrome.tabs.update(tab.id, { active: true });
+//             // Ensure the tab is updated to the latest content
+//             await chrome.tabs.reload(tab.id);
+//             await waitForTabToLoad(tab.id);
+//         }
+
+//         // Inject the content script into the target tab
+//         await chrome.scripting.executeScript({
+//             target: { tabId: tab.id },
+//             files: ['content.js']
+//         });
+
+//         console.log("Content script injected successfully.");
+
+//     } catch (error) {
+//         console.error("Error in checkForNewPosts:", error);
+//     }
+// }
 async function checkForNewPosts() {
     try {
-        const targetUrl = "https://x.com/"; // Replace with the specific URL you want to monitor
+        const targetUrl = "https://x.com/search?q=excelsior+-lang%3Aes+-lang%3Aen+-from%3ALiberty1Jami&src=typed_query&f=live";
         let [tab] = await chrome.tabs.query({ url: targetUrl });
 
         if (!tab) {
             console.log(`No tab found with URL ${targetUrl}. Opening new tab.`);
             tab = await chrome.tabs.create({ url: targetUrl, active: false });
-            // Wait for the tab to fully load before injecting the script
             await waitForTabToLoad(tab.id);
         } else {
-            console.log(`Found existing tab with URL ${targetUrl}. Using tab ID: ${tab.id}`);
-            // Bring the tab to the foreground if needed
-            // await chrome.tabs.update(tab.id, { active: true });
-            // Ensure the tab is updated to the latest content
+            console.log(`Found existing tab with URL ${tab.url}. Using tab ID: ${tab.id}`);
             await chrome.tabs.reload(tab.id);
             await waitForTabToLoad(tab.id);
         }
 
-        // Inject the content script into the target tab
+        // Inject the content script after ensuring the page is fully loaded
         await chrome.scripting.executeScript({
             target: { tabId: tab.id },
             files: ['content.js']
         });
 
         console.log("Content script injected successfully.");
-
     } catch (error) {
         console.error("Error in checkForNewPosts:", error);
     }
 }
+
+function waitForTabToLoad(tabId) {
+    return new Promise((resolve, reject) => {
+        const maxWaitTime = 20000; // 20 seconds max wait time
+        const checkInterval = 500; // Check every 500ms
+        let elapsedTime = 0;
+
+        const intervalId = setInterval(async () => {
+            const tab = await chrome.tabs.get(tabId);
+            if (tab.status === 'complete') {
+                clearInterval(intervalId);
+                resolve();
+            } else if (elapsedTime >= maxWaitTime) {
+                clearInterval(intervalId);
+                reject(new Error("Tab loading timed out."));
+            } else {
+                elapsedTime += checkInterval;
+            }
+        }, checkInterval);
+    });
+}
+
+
 
 /**
  * Helper function to wait for a tab to complete loading.

@@ -31,8 +31,27 @@ function extractPostsFromPage() {
     return posts;
 }
 
-// Send the posts data back to the background script
-chrome.runtime.sendMessage({
-    action: "postsExtracted",
-    data: extractPostsFromPage()
+function waitForTweets() {
+    return new Promise((resolve) => {
+        const maxAttempts = 20; // Try up to 20 times
+        let attempts = 0;
+
+        const intervalId = setInterval(() => {
+            const articles = document.querySelectorAll('article[data-testid="tweet"]');
+            if (articles.length > 0 || attempts >= maxAttempts) {
+                clearInterval(intervalId);
+                resolve();
+            } else {
+                attempts += 1;
+            }
+        }, 500); // Check every 500ms
+    });
+}
+
+// Wait for tweets to be loaded and then extract them
+waitForTweets().then(() => {
+    chrome.runtime.sendMessage({
+        action: "postsExtracted",
+        data: extractPostsFromPage()
+    });
 });
