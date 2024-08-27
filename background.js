@@ -120,6 +120,41 @@ function waitForTabToLoad(tabId) {
  * Filters out already processed posts, checks relevance, and shows notifications.
  * @param {Array} newPosts - Array of posts extracted from the content script.
  */
+// async function processNewPosts(newPosts) {
+//     try {
+//         const storedPosts = await getStoredPosts();
+
+//         // Filter out duplicates based on the unique link_to_post
+//         const freshPosts = newPosts.filter(
+//             post => !storedPosts.some(storedPost => storedPost.link_to_post === post.link_to_post)
+//         );
+
+//         console.log(`Found ${freshPosts.length} new posts.`);
+
+//         for (const post of freshPosts) {
+//             const isRelevant = await checkRelevanceWithOllama(post.message);
+//             console.log(`Post: "${post.message}" | Relevant: ${isRelevant}`);
+
+//             if (isRelevant) {
+//                 await showNotification(post);
+//             }
+//         }
+
+//         // Combine and sort all posts, keep only the latest 100 to prevent storage bloat
+//         const allPosts = [...freshPosts, ...storedPosts];
+//         allPosts.sort((a, b) => new Date(b.time) - new Date(a.time));
+//         const postsToStore = allPosts.slice(0, 100);
+
+//         await storePosts(postsToStore);
+//         await storeLastRefreshTime(new Date().toISOString());
+
+//         console.log("Posts processing completed successfully.");
+
+//     } catch (error) {
+//         console.error("Error in processNewPosts:", error);
+//         throw error;
+//     }
+// }
 async function processNewPosts(newPosts) {
     try {
         const storedPosts = await getStoredPosts();
@@ -132,11 +167,16 @@ async function processNewPosts(newPosts) {
         console.log(`Found ${freshPosts.length} new posts.`);
 
         for (const post of freshPosts) {
-            const isRelevant = await checkRelevanceWithOllama(post.message);
-            console.log(`Post: "${post.message}" | Relevant: ${isRelevant}`);
+            // Preprocess: Ensure the message contains "Excelsior"
+            if (containsExcelsior(post.message)) {
+                const isRelevant = await checkRelevanceWithOllama(post.message);
+                console.log(`Post: "${post.message}" | Relevant: ${isRelevant}`);
 
-            if (isRelevant) {
-                await showNotification(post);
+                if (isRelevant) {
+                    await showNotification(post);
+                }
+            } else {
+                console.log(`Filtered out post (no 'Excelsior' in message): "${post.message}"`);
             }
         }
 
@@ -154,6 +194,15 @@ async function processNewPosts(newPosts) {
         console.error("Error in processNewPosts:", error);
         throw error;
     }
+}
+
+/**
+ * Function to check if a message contains the word "Excelsior".
+ * @param {string} message - The message content of the post.
+ * @returns {boolean} - Returns true if the message contains "Excelsior", false otherwise.
+ */
+function containsExcelsior(message) {
+    return message.toLowerCase().includes("excelsior");
 }
 
 /**
@@ -222,7 +271,7 @@ async function checkRelevanceWithOllama(message) {
                 "Content-Type": "application/json"
             },
             body: JSON.stringify({
-                model: "llama3.1",
+                model: "mistral-nemo",
                 prompt: prompt,
                 format: "json",
                 stream: false
