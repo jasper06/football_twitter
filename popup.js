@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
     chrome.storage.local.get(['posts', 'lastRefresh'], (result) => {
-        const latestPost = result.posts?.[0];
+        const latestPost = result.posts?.[0]; // Assume posts are sorted by time
         const lastRefresh = result.lastRefresh;
 
         if (latestPost) {

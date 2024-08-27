@@ -19,10 +19,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     if (request.action === "checkNow") {
-        // Use chrome.tabs.query to find the active tab
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
             if (tabs[0] && tabs[0].id) {
-                // Inject the content script and run it
                 chrome.scripting.executeScript(
                     {
                         target: { tabId: tabs[0].id },
@@ -44,16 +42,23 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 async function processNewPosts(newPosts) {
     const storedPosts = await getStoredPosts();
+
+    // Filter out duplicates and check for relevance
     const freshPosts = newPosts.filter(post => !storedPosts.some(storedPost => storedPost.link_to_post === post.link_to_post));
 
     for (const post of freshPosts) {
         const isRelevant = await checkRelevanceWithOllama(post.message);
+        console.log(`Post: "${post.message}" | Relevant: ${isRelevant}`);
         if (isRelevant) {
             showNotification(post);
         }
     }
 
-    storePosts([...storedPosts, ...freshPosts]); // Store both old and new posts
+    // Store both old and new posts, sorted by time
+    const allPosts = [...storedPosts, ...freshPosts];
+    allPosts.sort((a, b) => new Date(b.time) - new Date(a.time));
+
+    storePosts(allPosts);
     storeLastRefreshTime(new Date().toISOString());
 }
 
@@ -96,7 +101,6 @@ async function checkRelevanceWithOllama(message) {
     const result = await response.json();
     return result.response.toLowerCase().includes("yes");
 }
-
 
 function showNotification(post) {
     chrome.notifications.create({
