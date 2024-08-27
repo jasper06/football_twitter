@@ -21,7 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
             if (tabs[0]) {
                 chrome.runtime.sendMessage({ action: "checkNow", tabId: tabs[0].id }, (response) => {
-                    if (response?.status === "Script executed") {
+                    if (response?.status === "Manual check completed successfully.") {
                         document.getElementById('statusMessage').textContent = "Check completed!";
                         setTimeout(() => location.reload(), 1000);
                     } else {

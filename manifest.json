@@ -29,5 +29,9 @@
             ],
             "run_at": "document_idle"
         }
-    ]
+    ],
+    "icons": {
+        "48": "icon.png",
+        "128": "icon.png"
+    }
 }

@@ -23,7 +23,7 @@ function extractPostsFromPage() {
         }
     });
 
-    // Sort posts by time in descending order
+    // Sort posts by time in descending order (newest first)
     posts.sort((a, b) => b.time - a.time);
 
     console.log('Extracted posts:', posts); // Log the posts to verify extraction
