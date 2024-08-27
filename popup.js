@@ -1,7 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // Display the latest post and last refresh time
     chrome.storage.local.get(['posts', 'lastRefresh'], (result) => {
-        console.log("Retrieved from storage:", result);
-
         const latestPost = result.posts?.[0];
         const lastRefresh = result.lastRefresh;
 
@@ -17,4 +16,19 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('lastRefresh').textContent = "Last refresh: Never.";
         }
     });
+
+    // Add click event listener to the "Check Now" button
+    document.getElementById('checkNowButton').addEventListener('click', () => {
+        document.getElementById('statusMessage').textContent = "Checking for new posts...";
+        chrome.runtime.sendMessage({ action: "checkNow" }, (response) => {
+            if (response.status === "Check completed") {
+                document.getElementById('statusMessage').textContent = "Check completed!";
+                // Optionally refresh the displayed data
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                document.getElementById('statusMessage').textContent = "Check failed. Please try again.";
+            }
+        });
+    });
 });
+

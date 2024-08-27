@@ -6,6 +6,20 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     }
 });
 
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === "checkNow") {
+        checkForNewPosts()
+            .then(() => {
+                sendResponse({ status: "Check completed" });
+            })
+            .catch(error => {
+                console.error("Error during manual check:", error);
+                sendResponse({ status: "Check failed" });
+            });
+        return true; // Indicates we want to send a response asynchronously
+    }
+});
+
 async function checkForNewPosts() {
     const url = "https://x.com/search?q=excelsior%20-lang%3Aes%20-lang%3Aen%20-from%3ALiberty1Jami&src=typed_query&f=live";
     try {
