@@ -14,3 +14,7 @@ go to: chrome://extensions/ and click "load unpacked".
 Select the folder of the files and open it. It should automatically add it to chrome now to your extensions list where you can activate it.
 
 Final.. Make sure to have your notifications enabled (otherwise it won't show one :-))
+
+
+----
+UPDATE: 25-9; After updating Chrome and Ollama I bumped into 

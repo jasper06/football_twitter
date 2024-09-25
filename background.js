@@ -83,20 +83,20 @@ function waitForTabToLoad(tabId) {
         }, checkInterval);
     });
 }
-
 async function processNewPosts(newPosts) {
     try {
         const storedPosts = await getStoredPosts();
+        const relevantPosts = await getRelevantPosts(); // Get stored relevant posts
 
-        // Filter out duplicates based on the unique link_to_post
+        // Filter out duplicates based on the unique link_to_post (extract tweet ID from the URL)
         const freshPosts = newPosts.filter(
-            post => !storedPosts.some(storedPost => storedPost.link_to_post === post.link_to_post)
+            post => !storedPosts.some(storedPost => storedPost.link_to_post === post.link_to_post) &&
+                !relevantPosts.some(relevantPost => getTweetId(relevantPost.link_to_post) === getTweetId(post.link_to_post))
         );
 
         console.log(`Found ${freshPosts.length} new posts.`);
 
         for (const post of freshPosts) {
-            // Preprocess: Ensure the message contains "Excelsior"
             if (containsExcelsior(post.message)) {
                 const isRelevant = await checkRelevanceWithOllama(post.message);
                 console.log(`Post: "${post.message}" | Relevant: ${isRelevant.relevant}`);
@@ -104,6 +104,9 @@ async function processNewPosts(newPosts) {
                 if (isRelevant.relevant === "yes") {
                     console.log(`Notification should be sent: tweet: "${post.message}", Ollama response JSON: ${JSON.stringify(isRelevant)}`);
                     await showNotification(post);
+
+                    // Add relevant post to local storage if it's not already there
+                    relevantPosts.unshift(post); // Add new relevant post to the top
                 } else {
                     console.log(`No notification: tweet "${post.message}", Reason: ${isRelevant.reason}`);
                 }
@@ -112,12 +115,16 @@ async function processNewPosts(newPosts) {
             }
         }
 
+        // Save the top 10 relevant posts
+        const postsToStore = relevantPosts.slice(0, 10); // Limit to 10 posts
+        await storeRelevantPosts(postsToStore);
+
         // Combine and sort all posts, keep only the latest 100 to prevent storage bloat
         const allPosts = [...freshPosts, ...storedPosts];
         allPosts.sort((a, b) => new Date(b.time) - new Date(a.time));
-        const postsToStore = allPosts.slice(0, 100);
+        const postsToStoreAll = allPosts.slice(0, 100);
 
-        await storePosts(postsToStore);
+        await storePosts(postsToStoreAll);
         await storeLastRefreshTime(new Date().toISOString());
 
         console.log("Posts processing completed successfully.");
@@ -127,6 +134,91 @@ async function processNewPosts(newPosts) {
         throw error;
     }
 }
+
+// Function to extract tweet ID from the tweet URL
+function getTweetId(link) {
+    const match = link.match(/\/status\/(\d+)/);
+    return match ? match[1] : null;
+}
+
+// async function processNewPosts(newPosts) {
+//     try {
+//         const storedPosts = await getStoredPosts();
+//         const relevantPosts = await getRelevantPosts(); // Get stored relevant posts
+
+//         // Filter out duplicates based on the unique link_to_post
+//         const freshPosts = newPosts.filter(
+//             post => !storedPosts.some(storedPost => storedPost.link_to_post === post.link_to_post)
+//         );
+
+//         console.log(`Found ${freshPosts.length} new posts.`);
+
+//         for (const post of freshPosts) {
+//             if (containsExcelsior(post.message)) {
+//                 const isRelevant = await checkRelevanceWithOllama(post.message);
+//                 console.log(`Post: "${post.message}" | Relevant: ${isRelevant.relevant}`);
+
+//                 if (isRelevant.relevant === "yes") {
+//                     console.log(`Notification should be sent: tweet: "${post.message}", Ollama response JSON: ${JSON.stringify(isRelevant)}`);
+//                     await showNotification(post);
+
+//                     // Add relevant post to local storage
+//                     relevantPosts.unshift(post); // Add new relevant post to the top
+//                 } else {
+//                     console.log(`No notification: tweet "${post.message}", Reason: ${isRelevant.reason}`);
+//                 }
+//             } else {
+//                 console.log(`Filtered out post (no 'Excelsior' in message): "${post.message}"`);
+//             }
+//         }
+
+//         // Save the top 10 relevant posts
+//         const postsToStore = relevantPosts.slice(0, 10); // Limit to 10 posts
+//         await storeRelevantPosts(postsToStore);
+
+//         // Combine and sort all posts, keep only the latest 100 to prevent storage bloat
+//         const allPosts = [...freshPosts, ...storedPosts];
+//         allPosts.sort((a, b) => new Date(b.time) - new Date(a.time));
+//         const postsToStoreAll = allPosts.slice(0, 100);
+
+//         await storePosts(postsToStoreAll);
+//         await storeLastRefreshTime(new Date().toISOString());
+
+//         console.log("Posts processing completed successfully.");
+
+//     } catch (error) {
+//         console.error("Error in processNewPosts:", error);
+//         throw error;
+//     }
+// }
+
+// Helper functions for relevant posts storage
+
+function getRelevantPosts() {
+    return new Promise((resolve, reject) => {
+        chrome.storage.local.get(["relevantPosts"], (result) => {
+            if (chrome.runtime.lastError) {
+                reject(new Error(chrome.runtime.lastError.message));
+            } else {
+                resolve(result.relevantPosts || []);
+            }
+        });
+    });
+}
+
+function storeRelevantPosts(posts) {
+    return new Promise((resolve, reject) => {
+        chrome.storage.local.set({ relevantPosts: posts }, () => {
+            if (chrome.runtime.lastError) {
+                reject(new Error(chrome.runtime.lastError.message));
+            } else {
+                console.log("Relevant posts stored successfully.");
+                resolve();
+            }
+        });
+    });
+}
+
 
 function containsExcelsior(message) {
     return message.toLowerCase().includes("excelsior");
@@ -177,6 +269,7 @@ async function checkRelevanceWithOllama(message) {
 
         const response = await fetch(apiUrl, {
             method: "POST",
+            // mode: "no-cors",  // Bypass CORS restrictions
             headers: {
                 "Content-Type": "application/json"
             },
@@ -235,7 +328,7 @@ async function checkRelevanceWithOllama(message) {
         return { relevant: "no", reason: "Error occurred while checking relevance." };
     }
 }
-
+ 
 
 function showNotification(post) {
     return new Promise((resolve, reject) => {
@@ -271,3 +364,33 @@ function showNotification(post) {
         });
     });
 }
+// async function testNoCorsCall() {
+//     try {
+//         const apiUrl = "http://127.0.0.1:11434/api/generate";
+//         const prompt = "What is the result of 2x4?";
+
+//         const response = await fetch(apiUrl, {
+//             method: "POST",
+//             // mode: "no-cors",  // Bypass CORS restrictions
+//             headers: {
+//                 "Content-Type": "application/json"
+//             },
+//             body: JSON.stringify({
+//                 model: "mistral-nemo",
+//                 prompt: prompt,
+//                 format: "json",
+//                 stream: false
+//             })
+//         });
+
+//         // Since no-cors prevents us from reading the response, just check if the request completed
+//         console.log('Request sent successfully!', response.json());
+//     } catch (error) {
+//         console.error('Error in no-cors fetch call:', error);
+//     }
+// }
+// // Test the call by triggering the function when your extension is loaded or when a button is clicked
+// chrome.runtime.onInstalled.addListener(() => {
+//     console.log('the result of 2x4 is:');
+//     testNoCorsCall();  // Test the no-cors call when the extension is installed/loaded
+// });

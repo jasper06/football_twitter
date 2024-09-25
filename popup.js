@@ -1,12 +1,24 @@
 document.addEventListener('DOMContentLoaded', () => {
-    chrome.storage.local.get(['posts', 'lastRefresh'], (result) => {
-        const latestPost = result.posts?.[0]; // Assume posts are sorted by time
+    chrome.storage.local.get(['relevantPosts', 'lastRefresh'], (result) => {
+        const relevantPosts = result.relevantPosts || [];
         const lastRefresh = result.lastRefresh;
 
-        if (latestPost) {
-            document.getElementById('latestPost').textContent = `Latest post from ${latestPost.from} at ${new Date(latestPost.time).toLocaleString()}: "${latestPost.message}"`;
+        const latestPostElement = document.getElementById('latestPost');
+        const postListElement = document.createElement('ul');
+
+        if (relevantPosts.length > 0) {
+            // Display the last 10 relevant posts
+            relevantPosts.forEach((post, index) => {
+                const listItem = document.createElement('li');
+                listItem.innerHTML = `<strong>${post.from}</strong> at ${new Date(post.time).toLocaleString()}:
+                                      <p>${post.message}</p>
+                                      <a href="${post.link_to_post}" target="_blank">Link to Tweet</a>`;
+                postListElement.appendChild(listItem);
+            });
+            latestPostElement.innerHTML = ""; // Clear the 'Loading latest post...' message
+            latestPostElement.appendChild(postListElement);
         } else {
-            document.getElementById('latestPost').textContent = "No posts found.";
+            latestPostElement.textContent = "No relevant posts found.";
         }
 
         if (lastRefresh) {
