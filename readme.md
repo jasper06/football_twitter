@@ -17,4 +17,4 @@ Final.. Make sure to have your notifications enabled (otherwise it won't show on
 
 
 ----
-UPDATE: 25-9; After updating Chrome and Ollama I bumped into 
+UPDATE: 25-9; After updating Chrome and Ollama I bumped into the CORS issue again. I fixed this doing: OLLAMA_ORIGINS=chrome-extension://* ollama serve giving the extensions access to ollama. You might want to restrict access to just the extension to make it safer.
