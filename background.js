@@ -1,4 +1,134 @@
 // background.js
+// OllamaService class for handling all Ollama interactions
+class OllamaService {
+    constructor() {
+        this.baseUrl = "http://127.0.0.1:11434";
+        this.currentModel = "mistral-nemo:latest";
+        this.isInitialized = false;
+        this.retryCount = 0;
+        this.maxRetries = 3;
+    }
+
+    async initialize() {
+        if (this.isInitialized) return true;
+
+        try {
+            // Check service availability
+            const modelCheck = await fetch(`${this.baseUrl}/api/tags`);
+            if (!modelCheck.ok) {
+                throw new Error(`Model check failed: ${modelCheck.status}`);
+            }
+
+            const models = await modelCheck.json();
+            console.log("Available models:", models);
+
+            // Check if our model is available
+            const hasModel = models.models?.some(model =>
+                model.name.startsWith("mistral-nemo") || model.name.startsWith("mistral:"));
+
+            if (!hasModel) {
+                console.warn("Preferred model not found, attempting to use alternative model");
+                this.currentModel = "mistral:latest";
+            }
+
+            this.isInitialized = true;
+            return true;
+        } catch (error) {
+            console.error("Failed to initialize Ollama service:", error);
+            this.showErrorNotification("Ollama Service Error",
+                "Cannot connect to Ollama. Please ensure the service is running.");
+            return false;
+        }
+    }
+
+    showErrorNotification(title, message) {
+        if (chrome.notifications) {
+            chrome.notifications.create({
+                type: "basic",
+                iconUrl: "icon.png",
+                title: title,
+                message: message
+            });
+        }
+    }
+
+    async checkRelevance(message) {
+        try {
+            if (!this.isInitialized) {
+                const initialized = await this.initialize();
+                if (!initialized) {
+                    return { relevant: "no", reason: "Ollama service not initialized" };
+                }
+            }
+
+            const prompt = `I'm looking for posts about Excelsior (usually referred to as Excelsior, Excelsior Rotterdam or Excelsiorrdam), a football club that plays in the Dutch league. I'm mainly interested in people saying stuff about Excelsior, potential new players, leaving players or other news about the club. As a first step I want to make sure that the link with the tweet is about a football club, and second if there might be a link with Excelsior. Please review this tweet "${message}" and respond yes or no in this json format: {{"relevant":"", "reason":""}}`;
+
+            const response = await fetch(`${this.baseUrl}/api/generate`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    model: this.currentModel,
+                    prompt: prompt,
+                    format: "json",
+                    stream: false
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`API request failed: ${response.status}`);
+            }
+
+            const result = await response.json();
+            let parsedResponse = this.parseOllamaResponse(result);
+            return parsedResponse;
+
+        } catch (error) {
+            console.error("Error in checkRelevance:", error);
+
+            // Try to reinitialize on error
+            if (this.retryCount < this.maxRetries) {
+                this.retryCount++;
+                this.isInitialized = false;
+                return await this.checkRelevance(message);
+            }
+
+            return {
+                relevant: "no",
+                reason: `Error: ${error.message}`
+            };
+        }
+    }
+
+    parseOllamaResponse(result) {
+        try {
+            let parsedResponse = typeof result.response === 'string'
+                ? JSON.parse(result.response)
+                : result.response;
+
+            return {
+                relevant: String(parsedResponse?.relevant || "no").toLowerCase() === "yes" ? "yes" : "no",
+                reason: parsedResponse?.reason || "No reason provided"
+            };
+        } catch (error) {
+            console.error("Error parsing Ollama response:", error);
+            return {
+                relevant: "no",
+                reason: "Failed to parse response"
+            };
+        }
+    }
+}
+
+// Create singleton instance
+const ollamaService = new OllamaService();
+
+// Initialize Ollama service when extension loads
+chrome.runtime.onInstalled.addListener(async () => {
+    console.log("Extension installed/updated - initializing Ollama service...");
+    await ollamaService.initialize();
+});
 
 // Set up periodic alarm to check for new posts every 10 minutes
 chrome.alarms.create("refreshPosts", { periodInMinutes: 10 });
@@ -91,7 +221,7 @@ async function processNewPosts(newPosts) {
         // Filter out duplicates based on the unique link_to_post (extract tweet ID from the URL)
         const freshPosts = newPosts.filter(
             post => !storedPosts.some(storedPost => storedPost.link_to_post === post.link_to_post) &&
-                !relevantPosts.some(relevantPost => getTweetId(relevantPost.link_to_post) === getTweetId(post.link_to_post))
+                    !relevantPosts.some(relevantPost => getTweetId(relevantPost.link_to_post) === getTweetId(post.link_to_post))
         );
 
         console.log(`Found ${freshPosts.length} new posts.`);
@@ -140,57 +270,6 @@ function getTweetId(link) {
     const match = link.match(/\/status\/(\d+)/);
     return match ? match[1] : null;
 }
-
-// async function processNewPosts(newPosts) {
-//     try {
-//         const storedPosts = await getStoredPosts();
-//         const relevantPosts = await getRelevantPosts(); // Get stored relevant posts
-
-//         // Filter out duplicates based on the unique link_to_post
-//         const freshPosts = newPosts.filter(
-//             post => !storedPosts.some(storedPost => storedPost.link_to_post === post.link_to_post)
-//         );
-
-//         console.log(`Found ${freshPosts.length} new posts.`);
-
-//         for (const post of freshPosts) {
-//             if (containsExcelsior(post.message)) {
-//                 const isRelevant = await checkRelevanceWithOllama(post.message);
-//                 console.log(`Post: "${post.message}" | Relevant: ${isRelevant.relevant}`);
-
-//                 if (isRelevant.relevant === "yes") {
-//                     console.log(`Notification should be sent: tweet: "${post.message}", Ollama response JSON: ${JSON.stringify(isRelevant)}`);
-//                     await showNotification(post);
-
-//                     // Add relevant post to local storage
-//                     relevantPosts.unshift(post); // Add new relevant post to the top
-//                 } else {
-//                     console.log(`No notification: tweet "${post.message}", Reason: ${isRelevant.reason}`);
-//                 }
-//             } else {
-//                 console.log(`Filtered out post (no 'Excelsior' in message): "${post.message}"`);
-//             }
-//         }
-
-//         // Save the top 10 relevant posts
-//         const postsToStore = relevantPosts.slice(0, 10); // Limit to 10 posts
-//         await storeRelevantPosts(postsToStore);
-
-//         // Combine and sort all posts, keep only the latest 100 to prevent storage bloat
-//         const allPosts = [...freshPosts, ...storedPosts];
-//         allPosts.sort((a, b) => new Date(b.time) - new Date(a.time));
-//         const postsToStoreAll = allPosts.slice(0, 100);
-
-//         await storePosts(postsToStoreAll);
-//         await storeLastRefreshTime(new Date().toISOString());
-
-//         console.log("Posts processing completed successfully.");
-
-//     } catch (error) {
-//         console.error("Error in processNewPosts:", error);
-//         throw error;
-//     }
-// }
 
 // Helper functions for relevant posts storage
 
@@ -262,73 +341,11 @@ function storeLastRefreshTime(time) {
     });
 }
 
+
+// Replace the old checkRelevanceWithOllama function
 async function checkRelevanceWithOllama(message) {
-    try {
-        const apiUrl = "http://127.0.0.1:11434/api/generate";
-        const prompt = `I'm looking for posts about Excelsior (usually referred to as Excelsior, Excelsior Rotterdam or Excelsiorrdam), a football club that is linked to new players or leaving players. I'm mainly interested in people saying stuff about Excelsior, potential new players or leaving players. As a first step I want to make sure that the link with the tweet is about a football club, and second if there might be a link with Excelsior. Please review this tweet "${message}" and respond yes or no in this json format: {{"relevant":"", "reason":""}}`;
-
-        const response = await fetch(apiUrl, {
-            method: "POST",
-            // mode: "no-cors",  // Bypass CORS restrictions
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                model: "mistral-nemo",
-                prompt: prompt,
-                format: "json",
-                stream: false
-            })
-        });
-
-        if (!response.ok) {
-            throw new Error(`Ollama API request failed with status ${response.status}`);
-        }
-
-        const result = await response.json();
-        console.log("Ollama API Response:", result);
-
-        // Handle different possible formats of the 'response' field
-        let parsedResponse;
-        try {
-            // Attempt to parse the 'response' as a JSON string
-            parsedResponse = JSON.parse(result.response);
-        } catch (e) {
-            console.error("Failed to parse response as JSON string. Attempting to handle manually.", e);
-            // Handle the case where the response might not be a valid JSON string
-            parsedResponse = result.response;
-        }
-
-        // Normalize the 'relevant' and 'reason' fields
-        let relevant = "no";
-        let reason = "No reason provided.";
-
-        if (typeof parsedResponse === 'string') {
-            // If parsedResponse is a string, try to parse it as JSON
-            try {
-                parsedResponse = JSON.parse(parsedResponse);
-                relevant = parsedResponse.relevant?.toString().toLowerCase() || "no";
-                reason = parsedResponse.reason || reason;
-            } catch (e) {
-                console.error("Failed to parse inner JSON string.", e);
-            }
-        } else if (typeof parsedResponse === 'object') {
-            // If parsedResponse is an object, extract relevant fields
-            relevant = parsedResponse.relevant?.toString().toLowerCase() || "no";
-            reason = parsedResponse.reason || reason;
-        }
-
-        return {
-            relevant: relevant === "yes" || relevant === "true" ? "yes" : "no",
-            reason: reason
-        };
-
-    } catch (error) {
-        console.error("Error in checkRelevanceWithOllama:", error);
-        return { relevant: "no", reason: "Error occurred while checking relevance." };
-    }
+    return await ollamaService.checkRelevance(message);
 }
- 
 
 function showNotification(post) {
     return new Promise((resolve, reject) => {
@@ -364,6 +381,127 @@ function showNotification(post) {
         });
     });
 }
+
+async function checkOllamaAvailability() {
+    const baseUrl = "http://127.0.0.1:11434";
+
+    try {
+        console.log("Checking model availability...");
+        const modelCheck = await fetch(`${baseUrl}/api/tags`, {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        });
+
+        console.log("Model endpoint status:", modelCheck.status);
+
+        if (!modelCheck.ok) {
+            console.error(`Model check failed: ${modelCheck.status}`);
+            return false;
+        }
+
+        const models = await modelCheck.json();
+        console.log("Available models:", models);
+
+        // Improved model check that handles version tags
+        const hasRequiredModel = models.models?.some(model => {
+            const modelName = model.name.split(':')[0]; // Split on ':' to remove version tag
+            return modelName === "mistral-nemo" || modelName === "mistral";
+        });
+
+        if (!hasRequiredModel) {
+            console.error("Required model (mistral-nemo) not found. Available models:",
+                models.models?.map(m => m.name).join(', '));
+
+            if (chrome.notifications) {
+                chrome.notifications.create({
+                    type: "basic",
+                    iconUrl: "icon.png",
+                    title: "Ollama Model Not Found",
+                    message: "Please install the required model: ollama pull mistral-nemo"
+                });
+            }
+            return false;
+        }
+
+        return true;
+
+    } catch (error) {
+        console.error("Detailed Ollama connection error:", {
+            message: error.message,
+            stack: error.stack,
+            type: error.name
+        });
+
+        if (chrome.notifications) {
+            chrome.notifications.create({
+                type: "basic",
+                iconUrl: "icon.png",
+                title: "Ollama Connection Error",
+                message: `Cannot connect to Ollama: ${error.message}. Please ensure the service is running.`
+            });
+        }
+        return false;
+    }
+}
+
+// Update the main checkRelevanceWithOllama function to also handle versioned model names
+async function checkRelevanceWithOllama(message) {
+    try {
+        const apiUrl = "http://127.0.0.1:11434/api/generate";
+        const prompt = `I'm looking for posts about Excelsior (usually referred to as Excelsior, Excelsior Rotterdam or Excelsiorrdam), a football club that plays in the Dutch league. I'm mainly interested in people saying stuff about Excelsior, potential new players, leaving players or other news about the club. As a first step I want to make sure that the link with the tweet is about a football club, and second if there might be a link with Excelsior. Please review this tweet "${message}" and respond yes or no in this json format: {{"relevant":"", "reason":""}}`;
+
+        const response = await fetch(apiUrl, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                model: "mistral-nemo:latest", // Updated to include version tag
+                prompt: prompt,
+                format: "json",
+                stream: false
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`Ollama API request failed with status ${response.status}`);
+        }
+
+        const result = await response.json();
+        console.log("Ollama API Response:", result);
+
+        let parsedResponse;
+        try {
+            parsedResponse = typeof result.response === 'string'
+                ? JSON.parse(result.response)
+                : result.response;
+        } catch (parseError) {
+            console.warn("Failed to parse response as JSON:", parseError);
+            return {
+                relevant: "no",
+                reason: "Failed to parse Ollama response"
+            };
+        }
+
+        const relevant = String(parsedResponse?.relevant || "no").toLowerCase();
+        const reason = parsedResponse?.reason || "No reason provided";
+
+        return {
+            relevant: relevant === "yes" || relevant === "true" ? "yes" : "no",
+            reason: reason
+        };
+
+    } catch (error) {
+        console.error("Error in checkRelevanceWithOllama:", error);
+        return {
+            relevant: "no",
+            reason: `Error occurred: ${error.message}`
+        };
+    }
+}
+
 // async function testNoCorsCall() {
 //     try {
 //         const apiUrl = "http://127.0.0.1:11434/api/generate";
