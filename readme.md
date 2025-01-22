@@ -32,9 +32,15 @@ curl -fsSL https://ollama.ai/install.sh | sh
 
 ### 2. Start Ollama with CORS Permissions
 ```bash
+# First, stop any running Ollama instances
+pkill ollama
+
 # Find your extension ID from chrome://extensions
-# Then run:
-OLLAMA_ORIGINS="chrome-extension://YOUR_EXTENSION_ID/*" ollama serve
+# Then run with BOTH wildcarded and non-wildcarded origins:
+OLLAMA_ORIGINS="chrome-extension://YOUR_EXTENSION_ID/*,chrome-extension://YOUR_EXTENSION_ID" ollama serve
+
+# Example:
+OLLAMA_ORIGINS="chrome-extension://nkpajojnedpbanonnffmhmdijadbcong/*,chrome-extension://nkpajojnedpbanonnffmhmdijadbcong" ollama serve
 ```
 
 ### 3. Pull Required Model
@@ -78,13 +84,52 @@ const prompt = `Your classification prompt here...`;
 ### CORS Issues
 If you encounter CORS errors:
 
-**macOS/Linux**:
+1. **Verify Extension ID**:
+   - Go to `chrome://extensions/`
+   - Enable Developer Mode
+   - Find your extension ID
+   - Ensure it exactly matches the OLLAMA_ORIGINS setting
+
+2. **Proper CORS Configuration**:
 ```bash
-OLLAMA_ORIGINS="chrome-extension://YOUR_EXTENSION_ID/*" ollama serve
+# Stop any running instances first
+pkill ollama
+
+# Start with both wildcarded and non-wildcarded origins
+OLLAMA_ORIGINS="chrome-extension://YOUR_EXTENSION_ID/*,chrome-extension://YOUR_EXTENSION_ID" ollama serve
 ```
 
-**Windows**:
-Follow CORS setup guide at [Ollama CORS Guide](https://github.com/ollama/ollama/blob/main/docs/cors.md)
+3. **Check manifest.json Permissions**:
+```json
+{
+    "permissions": [
+        "alarms",
+        "storage",
+        "notifications",
+        "activeTab",
+        "scripting",
+        "nativeMessaging"
+    ],
+    "host_permissions": [
+        "https://x.com/*",
+        "http://127.0.0.1:11434/*",
+        "http://localhost:11434/*"
+    ]
+}
+```
+
+4. **Reload Extension**:
+   - Go to `chrome://extensions/`
+   - Find your extension
+   - Click the reload button (circular arrow)
+   - Restart Chrome if issues persist
+
+5. **Debug Steps If CORS Persists**:
+   - Check console for exact error messages
+   - Verify Ollama is running with correct permissions
+   - Ensure no other instances of Ollama are running
+   - Try clearing browser cache and cookies
+   - Check if antivirus/firewall is blocking connections
 
 ### Model Not Found
 Ensure the model is installed:
@@ -112,9 +157,11 @@ The extension:
 1. Monitors X/Twitter search results
 2. Extracts posts using content scripts
 3. Filters posts containing target keywords
-4. Sends filtered posts to local Ollama for classification
+4. Sends filtered posts to local Ollama with proper CORS headers for classification
 5. Stores relevant posts and shows notifications
 6. Maintains post history and prevents duplicates
+7. Implements retry logic for failed requests
+8. Handles CORS requirements for local LLM communication
 
 ## Permissions
 
@@ -145,4 +192,24 @@ Feel free to:
 
 ## License
 
-[Your chosen license]
+MIT License
+
+Copyright (c) 2024 [Your Name]
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

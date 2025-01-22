@@ -37,6 +37,11 @@ class OllamaService {
                 this.lastSuccessfulCheck = Date.now();
                 return true;
             }
+            if (response.status === 403) {
+                console.error("Forbidden error: CORS issue detected");
+                // Log the actual headers for debugging
+                console.log("Response headers:", Object.fromEntries([...response.headers]));
+            }
 
             console.warn("Health check failed, attempting to reinitialize...");
             this.isInitialized = false;
@@ -115,10 +120,10 @@ class OllamaService {
 
     async checkRelevance(message) {
         try {
-            // Check if too much time has passed since last successful check
+            // Check initialization as before
             const timeSinceLastCheck = this.lastSuccessfulCheck ? Date.now() - this.lastSuccessfulCheck : Infinity;
-            if (timeSinceLastCheck > 300000) { // 5 minutes
-                this.isInitialized = false; // Force reinitialization
+            if (timeSinceLastCheck > 300000) {
+                this.isInitialized = false;
             }
 
             if (!this.isInitialized) {
@@ -128,12 +133,34 @@ class OllamaService {
                 }
             }
 
+            // Get the extension's origin for the request
+            const extensionOrigin = chrome.runtime.getURL("");
+            console.log("Making request from origin:", extensionOrigin);
+
+            // More comprehensive request headers
+            const headers = {
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "Origin": extensionOrigin,
+                "X-Requested-With": "XMLHttpRequest"
+            };
+
+            // Log the complete request configuration
+            console.log("Request configuration:", {
+                url: `${this.baseUrl}/api/generate`,
+                headers: headers,
+                body: {
+                    model: this.currentModel,
+                    prompt: this.prompt.replace("{message}", message),
+                    format: "json",
+                    stream: false
+                }
+            });
+
             const response = await fetch(`${this.baseUrl}/api/generate`, {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                signal: AbortSignal.timeout(30000), // 30 second timeout for generation
+                headers: headers,
+                signal: AbortSignal.timeout(30000),
                 body: JSON.stringify({
                     model: this.currentModel,
                     prompt: this.prompt.replace("{message}", message),
@@ -142,26 +169,39 @@ class OllamaService {
                 })
             });
 
+            // Log detailed response information
+            console.log("Response status:", response.status);
+            console.log("Response headers:", Object.fromEntries([...response.headers]));
+
             if (!response.ok) {
-                throw new Error(`API request failed: ${response.status}`);
+                const errorText = await response.text();
+                console.error("Error response body:", errorText);
+                throw new Error(`API request failed: ${response.status} - ${errorText}`);
             }
 
             const result = await response.json();
             let parsedResponse = this.parseOllamaResponse(result);
-            this.lastSuccessfulCheck = Date.now(); // Update last successful check
+            this.lastSuccessfulCheck = Date.now();
             return parsedResponse;
 
         } catch (error) {
             console.error("Error in checkRelevance:", error);
+
+            if (error.message.includes('403')) {
+                console.error("CORS Error detected. Please verify OLLAMA_ORIGINS setting.");
+                console.log("Extension ID:", chrome.runtime.id);
+                console.log("Extension Origin:", chrome.runtime.getURL(""));
+            }
 
             // Reset initialization if we get a connection error
             if (error.name === 'TypeError' && error.message.includes('fetch')) {
                 this.isInitialized = false;
             }
 
-            // Try to reinitialize and retry
+            // Limit retries to prevent infinite loop
             if (this.retryCount < this.maxRetries) {
                 this.retryCount++;
+                console.log(`Retrying request (attempt ${this.retryCount}/${this.maxRetries})`);
                 await this.initialize(true);
                 return await this.checkRelevance(message);
             }
@@ -172,7 +212,7 @@ class OllamaService {
             };
         }
     }
-
+    
     parseOllamaResponse(result) {
         try {
             let parsedResponse = typeof result.response === 'string'
