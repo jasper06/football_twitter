@@ -209,8 +209,8 @@ chrome.runtime.onInstalled.addListener(async () => {
     await ollamaService.initialize();
 });
 
-// Set up periodic alarm to check for new posts every 10 minutes
-chrome.alarms.create("refreshPosts", { periodInMinutes: 10 });
+// Set up periodic alarm to check for new posts every 5 minutes
+chrome.alarms.create("refreshPosts", { periodInMinutes: 5 });
 
 // Listen for the alarm and trigger check for new posts
 chrome.alarms.onAlarm.addListener(async (alarm) => {
@@ -247,7 +247,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 async function checkForNewPosts() {
     try {
-        const targetUrl = "https://x.com/search?q=excelsior+-lang%3Aes+-from%3ALiberty1Jami&src=typed_query&f=live";
+        const targetUrl = "https://x.com/search?q=excelsior+-from%3ALiberty1Jami&src=typed_query&f=live";
         let [tab] = await chrome.tabs.query({ url: targetUrl });
 
         if (!tab) {
