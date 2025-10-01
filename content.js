@@ -1,3 +1,4 @@
+// content.js
 function extractPostsFromPage() {
     const articles = document.querySelectorAll('article[data-testid="tweet"]');
     const posts = [];
@@ -50,8 +51,18 @@ function waitForTweets() {
 
 // Wait for tweets to be loaded and then extract them
 waitForTweets().then(() => {
+    // Get the search context that was set by the background script
+    const searchContext = window.searchContext || {
+        id: "main_excelsior",
+        searchTerm: "excelsior",
+        isMain: true
+    };
+
+    console.log('Content script running with search context:', searchContext);
+
     chrome.runtime.sendMessage({
         action: "postsExtracted",
-        data: extractPostsFromPage()
+        data: extractPostsFromPage(),
+        searchContext: searchContext
     });
 });

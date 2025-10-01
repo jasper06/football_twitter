@@ -5,8 +5,8 @@
     <title>Excelsior Post Tracker</title>
     <style>
         body {
-            width: 400px;
-            /* Set the width of the popup */
+            width: 500px;
+            /* Increased width to accommodate new features */
             padding: 10px;
             font-family: Arial, sans-serif;
         }
@@ -32,19 +32,205 @@
         #statusMessage {
             margin-bottom: 15px;
         }
+
+        .section {
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+        }
+
+        .section h3 {
+            margin-top: 0;
+            margin-bottom: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 10px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        .form-group input[type="text"] {
+            width: 100%;
+            padding: 5px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            box-sizing: border-box;
+        }
+
+        .form-group textarea {
+            width: 100%;
+            height: 80px;
+            padding: 5px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            box-sizing: border-box;
+            resize: vertical;
+        }
+
+        .btn {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+
+        .btn:hover {
+            background-color: #0056b3;
+        }
+
+        .btn-danger {
+            background-color: #dc3545;
+        }
+
+        .btn-danger:hover {
+            background-color: #c82333;
+        }
+
+        .temporary-term {
+            border: 1px solid #ddd;
+            padding: 8px;
+            margin-bottom: 10px;
+            border-radius: 3px;
+            background-color: #f9f9f9;
+        }
+
+        .temporary-term h4 {
+            margin: 0 0 5px 0;
+            color: #333;
+        }
+
+        .temporary-term p {
+            margin: 5px 0;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .temporary-term .prompt-preview {
+            font-style: italic;
+            max-height: 40px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .temporary-term .remove-btn {
+            float: right;
+            margin-top: -30px;
+        }
+
+        .tab {
+            overflow: hidden;
+            border: 1px solid #ccc;
+            background-color: #f1f1f1;
+            margin-bottom: 15px;
+        }
+
+        .tab button {
+            background-color: inherit;
+            float: left;
+            border: none;
+            outline: none;
+            cursor: pointer;
+            padding: 14px 16px;
+            transition: 0.3s;
+        }
+
+        .tab button:hover {
+            background-color: #ddd;
+        }
+
+        .tab button.active {
+            background-color: #ccc;
+        }
+
+        .tabcontent {
+            display: none;
+            border-top: none;
+        }
+
+        .tabcontent.active {
+            display: block;
+        }
+
+        .search-context {
+            font-size: 11px;
+            color: #888;
+            font-style: italic;
+        }
+
+        .ollama-reasoning {
+            font-size: 12px;
+            color: #666;
+            background-color: #f8f9fa;
+            padding: 8px;
+            border-left: 3px solid #007bff;
+            margin: 8px 0;
+            border-radius: 3px;
+        }
     </style>
 </head>
 
 <body>
     <h1>Excelsior Post Tracker</h1>
 
-    <!-- Move the "Check Now" button above the list of tweets -->
-    <button id="checkNowButton">Check Now</button>
-    <p id="statusMessage"></p>
+    <!-- Tab navigation -->
+    <div class="tab">
+        <button class="tablinks active" data-tab="PostsTab">Posts</button>
+        <button class="tablinks" data-tab="TermsTab">Search Terms</button>
+    </div>
 
-    <!-- List of latest posts -->
-    <p id="latestPost">Loading latest posts...</p> <!-- Changed text to plural -->
-    <p id="lastRefresh">Last refresh: Loading...</p>
+    <!-- Posts Tab -->
+    <div id="PostsTab" class="tabcontent active">
+        <!-- Move the "Check Now" button above the list of tweets -->
+        <button id="checkNowButton" class="btn">Check Now</button>
+        <p id="statusMessage"></p>
+
+        <!-- List of latest posts -->
+        <p id="latestPost">Loading latest posts...</p>
+        <p id="lastRefresh">Last refresh: Loading...</p>
+    </div>
+
+    <!-- Search Terms Tab -->
+    <div id="TermsTab" class="tabcontent">
+        <div class="section">
+            <h3>Add Temporary Search Term</h3>
+            <form id="addTermForm">
+                <div class="form-group">
+                    <label for="searchTerm">Search Term:</label>
+                    <input type="text" id="searchTerm" name="searchTerm" required
+                        placeholder="e.g., transfer, player name">
+                </div>
+                <div class="form-group">
+                    <label for="customPrompt">Custom Prompt:</label>
+                    <textarea id="customPrompt" name="customPrompt" required
+                        placeholder="Enter your custom prompt here. Use {message} as a placeholder for the tweet text. Example: Looking for posts about transfers. Please review this tweet '{message}' and respond yes or no in this json format: {{&quot;relevant&quot;:&quot;&quot;, &quot;reason&quot;:&quot;&quot;}}"></textarea>
+                </div>
+                <button type="submit" class="btn">Add Search Term</button>
+            </form>
+        </div>
+
+        <div class="section">
+            <h3>Active Search Terms</h3>
+            <div id="temporaryTermsList">
+                Loading...
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>Main Search</h3>
+            <p><strong>Term:</strong> excelsior</p>
+            <p><strong>URL:</strong> https://x.com/search?q=excelsior+-from%3ALiberty1Jami&src=typed_query&f=live</p>
+            <p class="prompt-preview"><strong>Prompt:</strong> Looking for posts about Excelsior (usually referred to as
+                Excelsior, Excelsior Rotterdam or Excelsiorrdam), a football club...</p>
+        </div>
+    </div>
 
     <script src="popup.js"></script>
 </body>

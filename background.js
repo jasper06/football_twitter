@@ -9,7 +9,7 @@ class OllamaService {
         this.maxRetries = 3;
         this.lastSuccessfulCheck = null;
         this.healthCheckInterval = null;
-        this.prompt = `I'm looking for posts about Excelsior (usually referred to as Excelsior, Excelsior Rotterdam or Excelsiorrdam), a football club that plays in the Dutch league. I'm mainly interested in people saying stuff about Excelsior, potential new players, leaving players or other news about the club. As a first step I want to make sure that the link with the tweet is about a football club, and second if there might be a link with Excelsior. Please review this tweet "{message}" and respond yes or no in this json format: {{"relevant":"", "reason":""}}`;
+        this.defaultPrompt = `I'm looking for posts about Excelsior (usually referred to as Excelsior, Excelsior Rotterdam or Excelsiorrdam), a football club that plays in the Dutch league. I'm mainly interested in people saying stuff about Excelsior, potential new players, leaving players or other news about the club. As a first step I want to make sure that the link with the tweet is about a football club, and second if there might be a link with Excelsior. Please review this tweet "{message}" and respond yes or no in this json format: {{"relevant":"", "reason":""}}`;
         this.setupHealthCheck();
     }
 
@@ -118,7 +118,7 @@ class OllamaService {
         }
     }
 
-    async checkRelevance(message) {
+    async checkRelevance(message, customPrompt = null) {
         try {
             // Check initialization as before
             const timeSinceLastCheck = this.lastSuccessfulCheck ? Date.now() - this.lastSuccessfulCheck : Infinity;
@@ -132,6 +132,9 @@ class OllamaService {
                     return { relevant: "no", reason: "Ollama service not initialized" };
                 }
             }
+
+            // Use custom prompt if provided, otherwise use default
+            const promptToUse = customPrompt || this.defaultPrompt;
 
             // Get the extension's origin for the request
             const extensionOrigin = chrome.runtime.getURL("");
@@ -151,7 +154,7 @@ class OllamaService {
                 headers: headers,
                 body: {
                     model: this.currentModel,
-                    prompt: this.prompt.replace("{message}", message),
+                    prompt: promptToUse.replace("{message}", message),
                     format: "json",
                     stream: false
                 }
@@ -160,10 +163,10 @@ class OllamaService {
             const response = await fetch(`${this.baseUrl}/api/generate`, {
                 method: "POST",
                 headers: headers,
-                signal: AbortSignal.timeout(30000),
+                signal: AbortSignal.timeout(130000),
                 body: JSON.stringify({
                     model: this.currentModel,
-                    prompt: this.prompt.replace("{message}", message),
+                    prompt: promptToUse.replace("{message}", message),
                     format: "json",
                     stream: false
                 })
@@ -203,7 +206,7 @@ class OllamaService {
                 this.retryCount++;
                 console.log(`Retrying request (attempt ${this.retryCount}/${this.maxRetries})`);
                 await this.initialize(true);
-                return await this.checkRelevance(message);
+                return await this.checkRelevance(message, customPrompt);
             }
 
             return {
@@ -212,7 +215,7 @@ class OllamaService {
             };
         }
     }
-    
+
     parseOllamaResponse(result) {
         try {
             let parsedResponse = typeof result.response === 'string'
@@ -264,7 +267,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "postsExtracted") {
         console.log("Posts extracted from content script:", request.data);
-        processNewPosts(request.data)
+        processNewPosts(request.data, request.searchContext)
             .then(() => sendResponse({ status: "Posts processed successfully." }))
             .catch((error) => {
                 console.error("Error processing posts:", error);
@@ -283,16 +286,87 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             });
         return true; // Indicates that the response is asynchronous
     }
+
+    if (request.action === "addTemporaryTerm") {
+        console.log("Adding temporary search term:", request.data);
+        addTemporarySearchTerm(request.data)
+            .then(() => sendResponse({ status: "Temporary term added successfully." }))
+            .catch((error) => {
+                console.error("Error adding temporary term:", error);
+                sendResponse({ status: "Error adding temporary term.", error: error.message });
+            });
+        return true;
+    }
+
+    if (request.action === "removeTemporaryTerm") {
+        console.log("Removing temporary search term:", request.data.id);
+        removeTemporarySearchTerm(request.data.id)
+            .then(() => sendResponse({ status: "Temporary term removed successfully." }))
+            .catch((error) => {
+                console.error("Error removing temporary term:", error);
+                sendResponse({ status: "Error removing temporary term.", error: error.message });
+            });
+        return true;
+    }
+
+    if (request.action === "getTemporaryTerms") {
+        getTemporarySearchTerms()
+            .then((terms) => sendResponse({ status: "success", data: terms }))
+            .catch((error) => {
+                console.error("Error getting temporary terms:", error);
+                sendResponse({ status: "Error getting temporary terms.", error: error.message });
+            });
+        return true;
+    }
 });
 
 async function checkForNewPosts() {
     try {
-        const targetUrl = "https://x.com/search?q=excelsior+-from%3ALiberty1Jami&src=typed_query&f=live";
-        let [tab] = await chrome.tabs.query({ url: targetUrl });
+        // Get all active search terms (main Excelsior + temporary terms)
+        const temporaryTerms = await getTemporarySearchTerms();
+        const activeTemporaryTerms = temporaryTerms.filter(term => term.isActive);
+
+        // Always include the main Excelsior search
+        const mainSearch = {
+            id: "main_excelsior",
+            searchTerm: "excelsior",
+            customPrompt: ollamaService.defaultPrompt,
+            url: "https://x.com/search?q=excelsior+-from%3ALiberty1Jami&src=typed_query&f=live",
+            isMain: true
+        };
+
+        const allSearches = [mainSearch, ...activeTemporaryTerms.map(term => ({
+            id: term.id,
+            searchTerm: term.searchTerm,
+            customPrompt: term.customPrompt,
+            url: `https://x.com/search?q=${encodeURIComponent(term.searchTerm)}&src=typed_query&f=live`,
+            isMain: false
+        }))];
+
+        console.log(`Executing ${allSearches.length} searches: 1 main + ${activeTemporaryTerms.length} temporary`);
+
+        // Execute each search in parallel
+        const searchPromises = allSearches.map(async (search) => {
+            return await executeSearchForTerm(search);
+        });
+
+        await Promise.all(searchPromises);
+        console.log("All searches completed successfully.");
+
+    } catch (error) {
+        console.error("Error in checkForNewPosts:", error);
+    }
+}
+
+async function executeSearchForTerm(searchConfig) {
+    try {
+        console.log(`Executing search for: ${searchConfig.searchTerm}`);
+
+        let [tab] = await chrome.tabs.query({ url: searchConfig.url });
 
         if (!tab) {
-            console.log(`No tab found with URL ${targetUrl}. Opening new tab.`);
-            tab = await chrome.tabs.create({ url: targetUrl, active: false });
+            console.log(`No tab found with URL ${searchConfig.url}. Opening new tab.`);
+            tab = await chrome.tabs.create({ url: searchConfig.url, active: false });
             await waitForTabToLoad(tab.id);
         } else {
             console.log(`Found existing tab with URL ${tab.url}. Using tab ID: ${tab.id}`);
@@ -300,15 +374,24 @@ async function checkForNewPosts() {
             await waitForTabToLoad(tab.id);
         }
 
-        // Inject the content script after ensuring the page is fully loaded
+        // Inject the content script with search context
+        await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: (searchContext) => {
+                // Store search context for the content script
+                window.searchContext = searchContext;
+            },
+            args: [searchConfig]
+        });
+
         await chrome.scripting.executeScript({
             target: { tabId: tab.id },
             files: ['content.js']
         });
 
-        console.log("Content script injected successfully.");
+        console.log(`Content script injected successfully for search: ${searchConfig.searchTerm}`);
     } catch (error) {
-        console.error("Error in checkForNewPosts:", error);
+        console.error(`Error executing search for ${searchConfig.searchTerm}:`, error);
     }
 }
 
@@ -332,40 +415,67 @@ function waitForTabToLoad(tabId) {
         }, checkInterval);
     });
 }
-async function processNewPosts(newPosts) {
+
+async function processNewPosts(newPosts, searchContext) {
     try {
+        console.log(`Processing ${newPosts.length} posts for search: ${searchContext.searchTerm}`);
+
         const storedPosts = await getStoredPosts();
-        const relevantPosts = await getRelevantPosts(); // Get stored relevant posts
+        const relevantPosts = await getRelevantPosts();
 
-        // Filter out duplicates based on the unique link_to_post (extract tweet ID from the URL)
-        const freshPosts = newPosts.filter(
-            post => !storedPosts.some(storedPost => storedPost.link_to_post === post.link_to_post) &&
-                    !relevantPosts.some(relevantPost => getTweetId(relevantPost.link_to_post) === getTweetId(post.link_to_post))
-        );
+        // Filter out duplicates based on tweet ID (handles /photo and other URL variations)
+        const freshPosts = newPosts.filter(post => {
+            const newPostId = getTweetId(post.link_to_post);
+            if (!newPostId) return false; // Skip posts without valid tweet IDs
 
-        console.log(`Found ${freshPosts.length} new posts.`);
+            // Check against stored posts using tweet ID
+            const isDuplicateStored = storedPosts.some(storedPost =>
+                getTweetId(storedPost.link_to_post) === newPostId
+            );
+
+            // Check against relevant posts using tweet ID  
+            const isDuplicateRelevant = relevantPosts.some(relevantPost =>
+                getTweetId(relevantPost.link_to_post) === newPostId
+            );
+
+            return !isDuplicateStored && !isDuplicateRelevant;
+        });
+
+        console.log(`Found ${freshPosts.length} new posts for search: ${searchContext.searchTerm}`);
 
         for (const post of freshPosts) {
-            if (containsExcelsior(post.message)) {
-                const isRelevant = await checkRelevanceWithOllama(post.message);
-                console.log(`Post: "${post.message}" | Relevant: ${isRelevant.relevant}`);
+            // For main Excelsior search, use the existing containsExcelsior filter
+            // For temporary terms, check if the search term appears in the message
+            let shouldProcess = false;
+
+            if (searchContext.isMain) {
+                shouldProcess = containsExcelsior(post.message);
+            } else {
+                shouldProcess = containsSearchTerm(post.message, searchContext.searchTerm);
+            }
+
+            if (shouldProcess) {
+                const isRelevant = await checkRelevanceWithOllama(post.message, searchContext.customPrompt);
+                console.log(`Post: "${post.message}" | Search: ${searchContext.searchTerm} | Relevant: ${isRelevant.relevant}`);
 
                 if (isRelevant.relevant === "yes") {
-                    console.log(`Notification should be sent: tweet: "${post.message}", Ollama response JSON: ${JSON.stringify(isRelevant)}`);
-                    await showNotification(post);
+                    console.log(`Notification should be sent: tweet: "${post.message}", Search: ${searchContext.searchTerm}, Ollama response JSON: ${JSON.stringify(isRelevant)}`);
+                    await showNotification(post, searchContext.searchTerm);
 
                     // Add relevant post to local storage if it's not already there
-                    relevantPosts.unshift(post); // Add new relevant post to the top
+                    post.searchContext = searchContext.searchTerm; // Add context to the post
+                    post.ollamaReasoning = isRelevant.reason; // Add LLM reasoning
+                    relevantPosts.unshift(post);
                 } else {
-                    console.log(`No notification: tweet "${post.message}", Reason: ${isRelevant.reason}`);
+                    console.log(`No notification: tweet "${post.message}", Search: ${searchContext.searchTerm}, Reason: ${isRelevant.reason}`);
                 }
             } else {
-                console.log(`Filtered out post (no 'Excelsior' in message): "${post.message}"`);
+                console.log(`Filtered out post (no '${searchContext.searchTerm}' in message): "${post.message}"`);
             }
         }
 
-        // Save the top 10 relevant posts
-        const postsToStore = relevantPosts.slice(0, 10); // Limit to 10 posts
+        // Save the top 100 relevant posts (increased from 10)
+        const postsToStore = relevantPosts.slice(0, 100);
         await storeRelevantPosts(postsToStore);
 
         // Combine and sort all posts, keep only the latest 100 to prevent storage bloat
@@ -376,12 +486,27 @@ async function processNewPosts(newPosts) {
         await storePosts(postsToStoreAll);
         await storeLastRefreshTime(new Date().toISOString());
 
-        console.log("Posts processing completed successfully.");
+        console.log(`Posts processing completed successfully for search: ${searchContext.searchTerm}`);
 
     } catch (error) {
         console.error("Error in processNewPosts:", error);
         throw error;
     }
+}
+
+// Function to check if a message contains a specific search term
+function containsSearchTerm(message, searchTerm) {
+    const normalizedMessage = message
+        .normalize('NFKD')
+        .replace(/[^\x00-\x7F]/g, '')
+        .toLowerCase();
+
+    const normalizedSearchTerm = searchTerm
+        .normalize('NFKD')
+        .replace(/[^\x00-\x7F]/g, '')
+        .toLowerCase();
+
+    return normalizedMessage.includes(normalizedSearchTerm);
 }
 
 // Function to extract tweet ID from the tweet URL
@@ -391,7 +516,6 @@ function getTweetId(link) {
 }
 
 // Helper functions for relevant posts storage
-
 function getRelevantPosts() {
     return new Promise((resolve, reject) => {
         chrome.storage.local.get(["relevantPosts"], (result) => {
@@ -417,9 +541,80 @@ function storeRelevantPosts(posts) {
     });
 }
 
+// Temporary search terms management functions
+function getTemporarySearchTerms() {
+    return new Promise((resolve, reject) => {
+        chrome.storage.local.get(["temporarySearchTerms"], (result) => {
+            if (chrome.runtime.lastError) {
+                reject(new Error(chrome.runtime.lastError.message));
+            } else {
+                resolve(result.temporarySearchTerms || []);
+            }
+        });
+    });
+}
+
+function storeTemporarySearchTerms(terms) {
+    return new Promise((resolve, reject) => {
+        chrome.storage.local.set({ temporarySearchTerms: terms }, () => {
+            if (chrome.runtime.lastError) {
+                reject(new Error(chrome.runtime.lastError.message));
+            } else {
+                console.log("Temporary search terms stored successfully.");
+                resolve();
+            }
+        });
+    });
+}
+
+async function addTemporarySearchTerm(termData) {
+    try {
+        const existingTerms = await getTemporarySearchTerms();
+
+        const newTerm = {
+            id: Date.now().toString(), // Simple ID generation
+            searchTerm: termData.searchTerm,
+            customPrompt: termData.customPrompt,
+            dateAdded: new Date().toISOString(),
+            isActive: true
+        };
+
+        existingTerms.push(newTerm);
+        await storeTemporarySearchTerms(existingTerms);
+
+        console.log("Temporary search term added:", newTerm);
+    } catch (error) {
+        console.error("Error adding temporary search term:", error);
+        throw error;
+    }
+}
+
+async function removeTemporarySearchTerm(termId) {
+    try {
+        const existingTerms = await getTemporarySearchTerms();
+        const filteredTerms = existingTerms.filter(term => term.id !== termId);
+
+        await storeTemporarySearchTerms(filteredTerms);
+
+        console.log("Temporary search term removed:", termId);
+    } catch (error) {
+        console.error("Error removing temporary search term:", error);
+        throw error;
+    }
+}
 
 function containsExcelsior(message) {
-    return message.toLowerCase().includes("excelsior");
+    // Convert the message to a normalized form
+    const normalizedMessage = message
+        // Normalize Unicode characters to their basic form
+        .normalize('NFKD')
+        // Remove any remaining non-ASCII characters
+        .replace(/[^\x00-\x7F]/g, '')
+        // Convert to lowercase for case-insensitive matching
+        .toLowerCase();
+
+    // Check for "excelsior" in the normalized text
+    return normalizedMessage.includes('excelsior');
 }
 
 function getStoredPosts() {
@@ -460,41 +655,29 @@ function storeLastRefreshTime(time) {
     });
 }
 
-
 // Replace the old checkRelevanceWithOllama function
-async function checkRelevanceWithOllama(message) {
-    return await ollamaService.checkRelevance(message);
+async function checkRelevanceWithOllama(message, customPrompt = null) {
+    return await ollamaService.checkRelevance(message, customPrompt);
 }
 
-function showNotification(post) {
+function showNotification(post, searchContext = "Excelsior") {
     return new Promise((resolve, reject) => {
-        chrome.notifications.create({
+        // Use the post link as the notification ID
+        const notificationId = post.link_to_post;
+
+        chrome.notifications.create(notificationId, {
             type: "basic",
             iconUrl: "icon.png",
-            title: "New Excelsior Post",
+            title: `New ${searchContext} Post`,
             message: `${post.from}: ${post.message}`,
             priority: 2
-        }, (notificationId) => {
+        }, (createdId) => {
             if (chrome.runtime.lastError) {
                 console.error("Error creating notification:", chrome.runtime.lastError.message);
                 reject(new Error(chrome.runtime.lastError.message));
             } else {
-                console.log(`Notification shown with ID: ${notificationId}`);
-
-                // Add a click listener to open the post link when the notification is clicked
-                chrome.notifications.onClicked.addListener((clickedNotificationId) => {
-                    if (clickedNotificationId === notificationId) {
-                        chrome.tabs.create({ url: post.link_to_post });
-                        chrome.notifications.clear(notificationId);
-                    }
-                });
-
-                // Auto-clear the notification after a certain time (e.g., 10 seconds)
-                setTimeout(() => {
-                    chrome.notifications.clear(notificationId);
-                    console.log(`Auto-clearing notification with ID: ${notificationId}`);
-                }, 10000);
-
+                console.log(`Notification shown with ID: ${createdId}`);
+                // The top-level listener will handle the click
                 resolve();
             }
         });

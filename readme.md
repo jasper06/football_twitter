@@ -64,6 +64,7 @@ Edit `background.js` to customize the Twitter search URL:
 const targetUrl = "https://x.com/search?q=YOUR_SEARCH_QUERY&src=typed_query&f=live";
 ```
 
+
 ### Classification Prompt
 Edit the prompt in `background.js` to customize what the LLM looks for:
 ```javascript
